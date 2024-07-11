@@ -1,16 +1,13 @@
-# insightful
+# Insightful
 
 The AI assistant for tech communities.
 
 ## Features
 
-- [x] **Conversation Analysis**: insightful can analyze the conversation in a tech community and provide insights on the topics being discussed.
-
-- [x] **Community Health Analysis**: insightful can analyze the health of a tech community and provide insights on the community's engagement, sentiment, and more.
-
-- [x] **Search Stack Overflow**: insightful can search Stack Overflow for relevant questions and answers from the community discussions.
-
-- [x] **Browse The Web**: insightful can browse the web for relevant information on the topics being discussed in the community.
+- [✔️] **Conversation Analysis**: insightful can analyze and provide insights on the topics being discussed in a tech community.
+- [✔️] **Community Health Analysis**: insightful can analyze the engagement, sentiment, and more of a tech community.
+- [✔️] **Search Stack Overflow**: insightful can search Stack Overflow for relevant questions and answers.
+- [✔️] **Browse The Web**: insightful can browse the web for relevant information on community topics.
 
 ## Prerequisites
 
@@ -21,20 +18,18 @@ The AI assistant for tech communities.
 
 ## Usage
 
-Insightful uses HuggingFace's [TGI] (<https://huggingface.co/docs/text-generation-inference/index>) server to serve compatible models. To use insightful, simply clone this repository and change the environment variables in the `.envrc` file according to your server's address.
+Insightful uses HuggingFace's [TGI](https://huggingface.co/docs/text-generation-inference/index) server for compatible models. Clone this repository and update the environment variables in the `.envrc` file with your server's address.
 
-For the Retrieval Augmented Generation (RAG) aspect, Insightful uses HuggingFace's [TEI] (<https://huggingface.co/docs/text-embeddings-inference/en/index>) server to serve compatible Embedding models. Change the environment variables in the `.envrc` file according to your server's address.
+For the Retrieval Augmented Generation (RAG) aspect, Insightful uses HuggingFace's [TEI](https://huggingface.co/docs/text-embeddings-inference/en/index) server for compatible Embedding models. Update the environment variables in the `.envrc` file with your server's address.
 
-To store these embeddings, Insightful uses a hosted instance of a ChromaDB server. Change the environment variables in the `.envrc` file according to your vectorstore server's address.
-
-Please make sure that the environment variables are all set correctly before running the application.
+To store these embeddings, Insightful uses a hosted instance of a ChromaDB server. Update the environment variables in the `.envrc` file with your vectorstore server's address.
 
 ```bash
-git clone
+git clone https://github.com/infracloudio/insightful.git
 cd insightful
 ```
 
-Then, install the dependencies.
+Install the dependencies.
 
 ```bash
 pip install -r requirements.txt
@@ -46,17 +41,17 @@ Set the environment variables.
 source .envrc
 ```
 
-Make sure the Docker containers for each of the above services (except Python)are running before starting the application.
+Ensure that all environment variables are correctly set before running the application.
 
-Refer to each of their Docker installation guides for more information.
+The Docker containers for each service (except Python) must be running before starting the application. Refer to their Docker installation guides for more information.
 
-Replace the $model with $TGI_MODEL when running the TGI docker container.
+When running the TGI docker container, replace $model with $TGI_MODEL.
 
-Similarly with the TEI container. replace $model with $TEI_MODEL.
+Similarly, replace $model with $TEI_MODEL when running the TEI container.
 
-For the ChromaDB container, set the ```--port``` flag to $VECTORDB_PORT:$VECTORDB_PORT
+For the ChromaDB container, set the `--port` flag to $VECTORDB_PORT:$VECTORDB_PORT.
 
-Setting these flags ensures there are no conflicting ports between the services and to access the servers on the same host without any issues.
+These flags ensure there are no conflicting ports between the services and allow access to the servers on the same host without issues.
 
 Finally, run the application.
 
