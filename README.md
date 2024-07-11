@@ -1,13 +1,13 @@
-# Insightful
+# InSightful
 
 The AI assistant for tech communities.
 
 ## Features
 
-- [✔️] **Conversation Analysis**: insightful can analyze and provide insights on the topics being discussed in a tech community.
-- [✔️] **Community Health Analysis**: insightful can analyze the engagement, sentiment, and more of a tech community.
-- [✔️] **Search Stack Overflow**: insightful can search Stack Overflow for relevant questions and answers.
-- [✔️] **Browse The Web**: insightful can browse the web for relevant information on community topics.
+- [✔️] **Conversation Analysis**: InSightful can analyze and provide insights on the topics being discussed in a tech community.
+- [✔️] **Community Health Analysis**: InSightful can analyze the engagement, sentiment, and more of a tech community.
+- [✔️] **Search Stack Overflow**: InSightful can search Stack Overflow for relevant questions and answers.
+- [✔️] **Browse The Web**: InSightful can browse the web for relevant information on community topics.
 
 ## Prerequisites
 
