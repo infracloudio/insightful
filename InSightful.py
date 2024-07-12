@@ -8,11 +8,9 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools.retriever import create_retriever_tool
-from langchain.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.utilities import StackExchangeAPIWrapper
 from langchain_community.tools.stackexchange.tool import StackExchangeTool
-from langchain.prompts import PromptTemplate
 from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
