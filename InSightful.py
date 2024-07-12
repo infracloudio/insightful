@@ -13,6 +13,7 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.utilities import StackExchangeAPIWrapper
 from langchain_community.tools.stackexchange.tool import StackExchangeTool
 from langchain.prompts import PromptTemplate
+from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
@@ -23,69 +24,85 @@ from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
 st.set_page_config(layout="wide", page_title="InSightful")
 
 # Set up Chroma DB client
-client = chromadb.HttpClient(
-    host="http://{host}:{port}".format(
-        host=os.getenv("VECTORDB_HOST", "localhost"),
-        port=os.getenv("VECTORDB_PORT", "8000"),
-    ),
-    settings=Settings(allow_reset=True),
-)
+def setup_chroma_client():
+    client = chromadb.HttpClient(
+        host="http://{host}:{port}".format(
+            host=os.getenv("VECTORDB_HOST", "localhost"),
+            port=os.getenv("VECTORDB_PORT", "8000"),
+        ),
+        settings=Settings(allow_reset=True),
+    )
+    return client
 
 # Set up Chroma embedding function
-chroma_embedding_function = HuggingFaceEmbeddingServer(
-    url="http://{host}:{port}/embed".format(
-        host=os.getenv("TEI_HOST", "localhost"), port=os.getenv("TEI_PORT", "8081")
+def setup_chroma_embedding_function():
+    chroma_embedding_function = HuggingFaceEmbeddingServer(
+        url="http://{host}:{port}/embed".format(
+            host=os.getenv("TEI_HOST", "localhost"), port=os.getenv("TEI_PORT", "8081")
+        )
     )
-)
-
-#Download and load prompt
-prompt = hub.pull("hwchase17/react-chat")
-
-# Set up prompt template
-template = """
-You are InSightful, a virtual assistant designed to help users with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model,
-you are able to generate human-like text based on the input you receive, allowing you to engage in 
-natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
-
-Always provide accurate and informative responses to a wide range of questions. 
-
-You do not answer questions about personal information, such as social security numbers,
-credit card numbers, or other sensitive information. You also do not provide medical, legal, or financial advice.
-
-You will not respond to any questions that are inappropriate or offensive. You are friendly, helpful,
-and you are here to assist users with any questions they may have.
-
-Keep your answers clear and concise, and provide as much information as possible to help users understand the topic.
-
-Use your best judgement and only use any tool if you absolutely need to.
-
-Tools provide you with more context and up-to-date information. Use them to your advantage.
-
-Input: {input}
-"""
-
-prompt_template = PromptTemplate.from_template(template=template)
+    return chroma_embedding_function
 
 # Set up HuggingFaceEndpoint model
-model = HuggingFaceEndpoint(
-    endpoint_url="http://{host}:{port}".format(
-        host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
-    ),
-    temperature=0.3,
-    task="conversational",
-    stop_sequences=[
-        "<|eot_id|>",
-        "{your_token}".format(your_token=os.getenv("STOP_TOKEN", "localhost")),
-    ],
-)
+def setup_huggingface_endpoint():
+    model = HuggingFaceEndpoint(
+        endpoint_url="http://{host}:{port}".format(
+            host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
+        ),
+        temperature=0.3,
+        task="conversational",
+        stop_sequences=[
+            "<|im_end|>",
+            "{your_token}".format(your_token=os.getenv("STOP_TOKEN", "localhost")),
+        ],
+    )
+    return model
 
 # Set up HuggingFaceEndpointEmbeddings embedder
-embedder = HuggingFaceEndpointEmbeddings(
-    model="http://{host}:{port}".format(
-        host=os.getenv("TEI_HOST", "localhost"), port=os.getenv("TEI_PORT", "8081")
-    ),
-    task="feature-extraction",
-)
+def setup_huggingface_embeddings():
+    embedder = HuggingFaceEndpointEmbeddings(
+        model="http://{host}:{port}".format(
+            host=os.getenv("TEI_HOST", "localhost"), port=os.getenv("TEI_PORT", "8081")
+        ),
+        task="feature-extraction",
+    )
+    return embedder
+
+def load_prompt_and_system_ins():
+    prompt = hub.pull("hwchase17/react-chat")
+    # Set up prompt template
+    template = """
+    You are InSightful, a virtual assistant designed to help users with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model,
+    you are able to generate human-like text based on the input you receive, allowing you to engage in 
+    natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
+
+    Always provide accurate and informative responses to a wide range of questions. 
+
+    You do not answer questions about personal information, such as social security numbers,
+    credit card numbers, or other sensitive information. You also do not provide medical, legal, or financial advice.
+
+    You will not respond to any questions that are inappropriate or offensive. You are friendly, helpful,
+    and you are here to assist users with any questions they may have.
+
+    Keep your answers clear and concise, and provide as much information as possible to help users understand the topic.
+
+    Use your best judgement and only use any tool if you absolutely need to.
+
+    Tools provide you with more context and up-to-date information. Use them to your advantage.
+
+    Thought: {thought}
+    Action: {action}
+    Action Input: {action_input}
+    Observation: {observation}
+    """
+
+    system_instructions = SystemMessage(
+        content=template,
+        metadata={"role": "system"},
+    )
+
+    return prompt, system_instructions
+
 class RAG:
     def __init__(self, llm, embeddings, collection_name, db_client):
         self.llm = llm
@@ -99,9 +116,7 @@ class RAG:
             documents.append(
                 Document(
                     page_content=data["text"],
-                    metadata=dict(
-                        user=data["user"],
-                    ),
+                    metadata=dict(user=data["user"], workspace=data["workspace"]),
                 )
             )
         print("Document loaded")
@@ -115,7 +130,7 @@ class RAG:
         print("Document chunked")
         return chunks
 
-    def insert_embeddings(self, chunks):
+    def insert_embeddings(self, chunks, chroma_embedding_function, embedder):
         collection = self.db_client.get_or_create_collection(
             self.collection_name, embedding_function=chroma_embedding_function
         )
@@ -133,7 +148,7 @@ class RAG:
         print("Embeddings inserted\n")
         return db
 
-    def query_docs(self, question, vector_store, prompt):
+    def query_docs(self, model, question, vector_store, prompt):
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 4}
         )
@@ -146,69 +161,86 @@ class RAG:
         answer = rag_chain.invoke(question)
         return answer
 
-
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-
-stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
-stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
-web_search_tool = TavilySearchResults(max_results=3)
-
-
-@st.cache_resource
-def create_retriever(name, description):
+def create_retriever(name, model, description, client, chroma_embedding_function, embedder):
     rag = RAG(llm=model, embeddings=embedder, collection_name="Slack", db_client=client)
     pages = rag.load_documents("spencer/software_slacks")
     chunks = rag.chunk_doc(pages)
-    vector_store = rag.insert_embeddings(chunks)
+    vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
     retriever = vector_store.as_retriever(
         search_type="similarity", search_kwargs={"k": 10}
     )
-    info_retriever = create_retriever_tool(
-        retriever,
-        name,
-        description
-    )
+    info_retriever = create_retriever_tool(retriever, name, description)
     return info_retriever
 
+@st.cache_resource
+def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
+    stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
+    stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
 
-retriever = create_retriever("Slack conversations retriever",
-                             "Retrieves conversations from Slack for context.")
+    web_search_tool = TavilySearchResults(max_results=3)
 
-tools = [web_search_tool, stackexchange_tool, retriever]
+    retriever = create_retriever(
+        name="Slack conversations retriever",
+        model=_model,
+        description="Retrieves conversations from Slack for context.",
+        client=_client,
+        chroma_embedding_function=_chroma_embedding_function,
+        embedder=_embedder,
+    )
+    return [web_search_tool, stackexchange_tool, retriever]
 
-agent = create_react_agent(llm=model, prompt=prompt, tools=tools)
+def setup_agent(model, prompt, client, chroma_embedding_function, embedder):
+    tools = setup_tools(model, client, chroma_embedding_function, embedder)
+    agent = create_react_agent(llm=model, prompt=prompt, tools=tools)
+    agent_executor = AgentExecutor(
+        agent=agent, verbose=True, tools=tools, handle_parsing_errors=True
+    )
+    return agent_executor
 
-agent_executor = AgentExecutor(
-    agent=agent, verbose=True, tools=tools, handle_parsing_errors=True
-)
+def main():
+    client = setup_chroma_client()
+    chroma_embedding_function = setup_chroma_embedding_function()
+    prompt, system_instructions = load_prompt_and_system_ins()
+    model = setup_huggingface_endpoint()
+    embedder = setup_huggingface_embeddings()
 
-st.title("InSightful: Your AI Assistant for community questions")
-st.markdown(
-    """
-InSightful is an AI assistant that helps you with your questions. 
-- It can browse past conversations with your colleagues/teammates and can search StackOverflow for technical questions.
-- With access to the web, InSightful can also conduct its own research for you."""
-)
+    agent_executor = setup_agent(
+        model, prompt, client, chroma_embedding_function, embedder
+    )
 
-chat_history = st.session_state.get("chat_history", [])
+    st.title("InSightful: Your AI Assistant for community questions")
+    st.markdown(
+        """
+    InSightful is an AI assistant that helps you with your questions. 
+    - It can browse past conversations with your colleagues/teammates and can search StackOverflow for technical questions.
+    - With access to the web, InSightful can also conduct its own research for you."""
+    )
 
-for message in chat_history:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    chat_history = st.session_state.get(
+        "chat_history", [{"role": "system", "content": system_instructions.content}]
+    )
 
-if question := st.chat_input("Enter your question here"):
-    st.chat_message("user").markdown(question)
-    chat_history.append({"role": "user", "content": question})
-    with st.spinner():
-        response = agent_executor.invoke(
-            {
-                "input": prompt_template.format(input=question),
-                "chat_history": chat_history,
-            }
-        )["output"]
-    st.chat_message("assistant").markdown(response)
-    chat_history.append({"role": "assistant", "content": response})
+    for message in chat_history[1:]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-st.session_state["chat_history"] = chat_history
+    if question := st.chat_input("Enter your question here"):
+        st.chat_message("user").markdown(question)
+        chat_history.append({"role": "user", "content": question})
+        with st.spinner():
+            response = agent_executor.invoke(
+                {
+                    "input": question,
+                    "chat_history": chat_history,
+                }
+            )["output"]
+        st.chat_message("assistant").markdown(response)
+        chat_history.append({"role": "assistant", "content": response})
+
+    st.session_state["chat_history"] = chat_history
+
+if __name__ == "__main__":
+    main()
