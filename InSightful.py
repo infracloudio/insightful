@@ -86,8 +86,6 @@ embedder = HuggingFaceEndpointEmbeddings(
     ),
     task="feature-extraction",
 )
-
-
 class RAG:
     def __init__(self, llm, embeddings, collection_name, db_client):
         self.llm = llm
