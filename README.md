@@ -9,6 +9,10 @@ The AI assistant for tech communities.
 - [✔️] **Search Stack Overflow**: InSightful can search Stack Overflow for relevant questions and answers.
 - [✔️] **Browse The Web**: InSightful can browse the web for relevant information on community topics.
 
+## Overview of workflow
+
+![RAG-FC](https://github.com/user-attachments/assets/dd56f9e6-f641-4500-8785-15bc1fe37b4b)
+
 ## Prerequisites
 
 - Python 3.10.13
