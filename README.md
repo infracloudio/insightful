@@ -60,5 +60,5 @@ These flags ensure there are no conflicting ports between the services and allow
 Finally, run the application.
 
 ```bash
-streamlit run InSightful.py
+streamlit run app.py
 ```
