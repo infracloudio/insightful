@@ -8,4 +8,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8051
 
-CMD ["streamlit", "run", "InSightful.py"]
+CMD ["streamlit", "run", "app.py"]
