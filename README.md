@@ -11,7 +11,8 @@ The AI assistant for tech communities.
 
 ## Overview of workflow
 
-![RAG-FC](https://github.com/user-attachments/assets/dd56f9e6-f641-4500-8785-15bc1fe37b4b)
+![RAG-FC](https://github.com/user-attachments/assets/456b8dfa-58c9-4894-b720-f662cffded2f)
+
 
 ## Prerequisites
 
