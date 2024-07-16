@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: docker-registry
+  namespace: ai-stack
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: encoded_json_git_credentials
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: ai-stack
+type: Opaque
+data:
+  HF_API_TOKEN: hf_api_token
+  TAVILY_API_KEY: tavily_api_key
+  STACK_EXCHANGE_API_KEY: stack_exchange_api_key
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: ai-stack
+data:
+  TGI_HOST: "192.168.0.202"
+  TGI_PORT: "80"
+  TEI_HOST: "192.168.0.203"
+  TEI_PORT: "80"
+  VECTORDB_HOST: "192.168.0.201"
+  VECTORDB_PORT: "8000"
+  TGI_MODEL: "teknium/OpenHermes-2.5-Mistral-7B"
+  TEI_MODEL: "BAAI/bge-large-en-v1.5"
+  STOP_TOKEN: "<|im_end|>"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insightful
+  namespace: ai-stack
+  labels:
+    app: insightful
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: insightful
+  template:
+    metadata:
+      labels:
+        app: insightful
+    spec:
+      containers:
+      - name: insightful
+        image: ghcr.io/infracloudio/insightful:latest
+        env:
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: HF_API_TOKEN
+        - name: TAVILY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: TAVILY_API_KEY
+        - name: STACK_EXCHANGE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-secrets
+              key: STACK_EXCHANGE_API_KEY
+        - name: TGI_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TGI_HOST
+        - name: TGI_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TGI_PORT
+        - name: TEI_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TEI_HOST
+        - name: TEI_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TEI_PORT
+        - name: VECTORDB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: VECTORDB_HOST
+        - name: VECTORDB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: VECTORDB_PORT
+        - name: TGI_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TGI_MODEL
+        - name: TEI_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: TEI_MODEL
+        - name: STOP_TOKEN
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: STOP_TOKEN
+        ports:
+        - containerPort: 8051
+      imagePullSecrets:
+      - name: docker-registry
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: insightful
+  namespace: ai-stack
+spec:
+  selector:
+    app: insightful
+  ports:
+  - protocol: TCP
+    port: 8051
+    targetPort: 8051
+  type: LoadBalancer
