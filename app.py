@@ -20,6 +20,11 @@ import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
 
+from langchain.schema import Document
+from langchain.retrievers import ContextualCompressionRetriever
+from tei_rerank import TEIRerank
+
+
 st.set_page_config(layout="wide", page_title="InSightful")
 
 # Set up Chroma DB client
@@ -29,7 +34,9 @@ def setup_chroma_client():
             host=os.getenv("VECTORDB_HOST", "localhost"),
             port=os.getenv("VECTORDB_PORT", "8000"),
         ),
-        settings=Settings(allow_reset=True),
+        settings=Settings(allow_reset=True, 
+                          anonymized_telemetry=False)
+
     )
     return client
 
@@ -157,16 +164,21 @@ class RAG:
         print("Document chunked")
         return chunks
 
-    def insert_embeddings(self, chunks, chroma_embedding_function, embedder):
+    def insert_embeddings(self, chunks, chroma_embedding_function, embedder, batch_size=32):
         collection = self.db_client.get_or_create_collection(
             self.collection_name, embedding_function=chroma_embedding_function
         )
-        for chunk in chunks:
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            chunk_ids = [str(uuid.uuid1()) for _ in batch]
+            metadatas = [chunk.metadata for chunk in batch]
+            documents = [chunk.page_content for chunk in batch]
+            
             collection.add(
-                ids=[str(uuid.uuid1())],
-                metadatas=chunk.metadata,
-                documents=chunk.page_content,
-            )
+                ids=chunk_ids,
+                metadatas=metadatas,
+                documents=documents
+        )
         db = Chroma(
             embedding_function=embedder,
             collection_name=self.collection_name,
@@ -191,15 +203,33 @@ class RAG:
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-def create_retriever(name, model, description, client, chroma_embedding_function, embedder):
+#def create_retriever(name, model, description, client, chroma_embedding_function, embedder):
+#    rag = RAG(llm=model, embeddings=embedder, collection_name="Slack", db_client=client)
+#    pages = rag.load_documents("spencer/software_slacks")
+#    chunks = rag.chunk_doc(pages)
+#    vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
+#    retriever = vector_store.as_retriever(
+#        search_type="similarity", search_kwargs={"k": 10}
+#    )
+#    info_retriever = create_retriever_tool(retriever, name, description)
+#    return info_retriever
+
+def create_reranker_retriever(name, model, description, client, chroma_embedding_function, embedder):
     rag = RAG(llm=model, embeddings=embedder, collection_name="Slack", db_client=client)
     pages = rag.load_documents("spencer/software_slacks", num_docs=100)
     chunks = rag.chunk_doc(pages)
     vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
+    compressor = TEIRerank(url="http://{host}:{port}".format(host=os.getenv("RERANKER_HOST", "localhost"), 
+                                                                    port=os.getenv("RERANKER_PORT", "8082")), 
+                                                                    top_n=10,
+                                                                    batch_size=16)
     retriever = vector_store.as_retriever(
-        search_type="similarity", search_kwargs={"k": 10}
+        search_type="similarity", search_kwargs={"k": 100}
     )
-    info_retriever = create_retriever_tool(retriever, name, description)
+    compression_retriever = ContextualCompressionRetriever(
+        base_compressor=compressor, base_retriever=retriever
+    )
+    info_retriever = create_retriever_tool(compression_retriever, name, description)
     return info_retriever
 
 @st.cache_resource
@@ -210,15 +240,24 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
     web_search_tool = TavilySearchResults(max_results=10,
                                           handle_tool_error=True)
 
-    retriever = create_retriever(
-        name="slack_retriever",
+    #retriever = create_retriever(
+    #    name="Slack conversations retriever",
+    #    model=_model,
+    #    description="Retrieves conversations from Slack for context.",
+    #    client=_client,
+    #    chroma_embedding_function=_chroma_embedding_function,
+    #    embedder=_embedder,
+    #)
+    reranker_retriever = create_reranker_retriever(
+        name="slack_conversations_retriever",
         model=_model,
-        description="Retrieves conversations from Slack for context.",
+        description="Useful for when you need to answer from Slack conversations.",
         client=_client,
         chroma_embedding_function=_chroma_embedding_function,
         embedder=_embedder,
     )
-    return [web_search_tool, stackexchange_tool, retriever]
+
+    return [web_search_tool, stackexchange_tool, reranker_retriever]
 
 def setup_agent(model, prompt, client, chroma_embedding_function, embedder):
     tools = setup_tools(model, client, chroma_embedding_function, embedder)
