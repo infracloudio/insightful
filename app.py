@@ -1,9 +1,11 @@
 import os
 import uuid
+from portkey_ai import createHeaders, PORTKEY_GATEWAY_URL
 import streamlit as st
 import datasets
 from langchain import hub
 from langchain_huggingface import HuggingFaceEndpointEmbeddings, HuggingFaceEndpoint
+from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.agents import create_react_agent, AgentExecutor
@@ -59,9 +61,25 @@ def setup_huggingface_endpoint():
         task="conversational",
         stop_sequences=[
             "<|im_end|>",
-            "{your_token}".format(your_token=os.getenv("STOP_TOKEN", "localhost")),
+            "{your_token}".format(your_token=os.getenv("STOP_TOKEN", "<|endoftext|>")),
         ],
     )
+    return model
+
+def setup_portkey_integrated_model():
+    portkey_headers = createHeaders(
+    api_key=os.getenv("PORTKEY_API_KEY"),
+    custom_host=os.getenv("PORTKEY_CUSTOM_HOST"),
+    provider=os.getenv("PORTKEY_PROVIDER")
+    )
+    
+    model = ChatOpenAI(
+        api_key="None",
+        base_url=PORTKEY_GATEWAY_URL,
+        model="qwen2",  # Verify the exact model name
+        default_headers=portkey_headers,
+    )
+
     return model
 
 # Set up HuggingFaceEndpointEmbeddings embedder
@@ -130,7 +148,7 @@ def load_prompt_and_system_ins():
     """
 
     system_instructions = SystemMessage(
-        content=template,
+        content=system_message_template,
         metadata={"role": "system"},
     )
 
@@ -232,7 +250,24 @@ def create_reranker_retriever(name, model, description, client, chroma_embedding
     info_retriever = create_retriever_tool(compression_retriever, name, description)
     return info_retriever
 
-@st.cache_resource
+def create_reranker_retriever(name, model, description, client, chroma_embedding_function, embedder):
+    rag = RAG(llm=model, embeddings=embedder, collection_name="Slack", db_client=client)
+    pages = rag.load_documents("spencer/software_slacks", num_docs=250)
+    chunks = rag.chunk_doc(pages)
+    vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
+    compressor = TEIRerank(url="http://{host}:{port}".format(host=os.getenv("RERANKER_HOST", "localhost"), 
+                                                                    port=os.getenv("RERANKER_PORT", "8082")), 
+                                                                    top_n=50,
+                                                                    batch_size=16)
+    retriever = vector_store.as_retriever(
+        search_type="similarity", search_kwargs={"k": 10}
+    )
+    compression_retriever = ContextualCompressionRetriever(
+        base_compressor=compressor, base_retriever=retriever
+    )
+    info_retriever = create_retriever_tool(compression_retriever, name, description)
+    return info_retriever
+
 def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
     stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
     stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
@@ -259,9 +294,10 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
 
     return [web_search_tool, stackexchange_tool, reranker_retriever]
 
-def setup_agent(model, prompt, client, chroma_embedding_function, embedder):
-    tools = setup_tools(model, client, chroma_embedding_function, embedder)
-    agent = create_react_agent(llm=model, prompt=prompt, tools=tools)
+@st.cache_resource
+def setup_agent(_model, _prompt, _client, _chroma_embedding_function, _embedder):
+    tools = setup_tools(_model, _client, _chroma_embedding_function, _embedder)
+    agent = create_react_agent(llm=_model, prompt=_prompt, tools=tools)
     agent_executor = AgentExecutor(
         agent=agent, verbose=True, tools=tools, handle_parsing_errors=True
     )
@@ -271,7 +307,8 @@ def main():
     client = setup_chroma_client()
     chroma_embedding_function = setup_chroma_embedding_function()
     prompt, system_instructions = load_prompt_and_system_ins()
-    model = setup_huggingface_endpoint()
+    #model = setup_huggingface_endpoint()
+    model = setup_portkey_integrated_model()
     embedder = setup_huggingface_embeddings()
 
     agent_executor = setup_agent(
