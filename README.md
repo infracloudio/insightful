@@ -1,14 +1,18 @@
-# InSightful-rerank
+# InSightful
 
-Enhancing the original InSightful with a reranker.
+The AI assistant for tech communities.
 
 ## Features
 
-Everything InSightful can do but better. By utilizing and exploiting the methods of Advanced RAG using a reranker, we significantly improve the quality of retrieved context from the vector store.
+- [✔️] **Conversation Analysis**: InSightful can analyze and provide insights on the topics being discussed in a tech community.
+- [✔️] **Community Health Analysis**: InSightful can analyze the engagement, sentiment, and more of a tech community.
+- [✔️] **Search Stack Overflow**: InSightful can search Stack Overflow for relevant questions and answers.
+- [✔️] **Browse The Web**: InSightful can browse the web for relevant information on community topics.
 
 ## Overview of workflow
 
-![RAG-FC-Rerank](https://github.com/user-attachments/assets/f56de040-05e8-4307-be70-16929a72bafb)
+![RAG-FC](https://github.com/user-attachments/assets/456b8dfa-58c9-4894-b720-f662cffded2f)
+
 
 ## Prerequisites
 
