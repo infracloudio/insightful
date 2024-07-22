@@ -15,14 +15,11 @@ from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
-from huggingface_hub import InferenceClient
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
 
-import requests
-from typing import List, Optional
-from langchain.schema import BaseDocumentTransformer, Document
+from langchain.schema import Document
 from langchain.retrievers import ContextualCompressionRetriever
 from tei_rerank import TEIRerank
 
@@ -36,7 +33,9 @@ def setup_chroma_client():
             host=os.getenv("VECTORDB_HOST", "localhost"),
             port=os.getenv("VECTORDB_PORT", "8000"),
         ),
-        settings=Settings(allow_reset=True),
+        settings=Settings(allow_reset=True, 
+                          anonymized_telemetry=False)
+
     )
     return client
 
@@ -76,8 +75,9 @@ def setup_huggingface_embeddings():
 
 def load_prompt_and_system_ins():
     prompt = hub.pull("hwchase17/react-chat")
+
     # Set up prompt template
-    template = """
+    system_message_template = """
     You are InSightful, a virtual assistant designed to help users with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model,
     you are able to generate human-like text based on the input you receive, allowing you to engage in 
     natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
@@ -87,32 +87,10 @@ def load_prompt_and_system_ins():
     You can assess the health of a conversation from the engagement and understand the sentiment of the conversations on Slack.
 
     You can assess if people are generally interested or disinterested in the conversation, and you can also determine if the conversation is positive or negative.
-
-    You do not answer questions about personal information, such as social security numbers,
-    credit card numbers, or other sensitive information. You also do not provide medical, legal, or financial advice.
-
-    You will not respond to any questions that are inappropriate or offensive. You are friendly, helpful,
-    and you are here to assist users with any questions they may have.
-
-    Keep your answers clear and concise, and provide as much information as possible to help users understand the topic.
-
-    Use your best judgement and only use any tool if you absolutely need to.
-
-    Tools provide you with more context and up-to-date information. Use them to your advantage.
-
-    Use the tools for any current information. Make sure to use the tools to verify your answers as well.
-
-    If you are ready with an answer use the format:
-
-    ```
-    Thought: Do I have to use a tool? No
-    Final Answer: [your response here]
-    ```
-
     """
 
     system_instructions = SystemMessage(
-        content=template,
+        content=system_message_template,
         metadata={"role": "system"},
     )
 
@@ -232,9 +210,9 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
     #    embedder=_embedder,
     #)
     reranker_retriever = create_reranker_retriever(
-        name="Slack_conversations_retriever",
+        name="slack_conversations_retriever",
         model=_model,
-        description="Retrieves conversations from Slack for context.",
+        description="Useful for when you need to answer from Slack conversations.",
         client=_client,
         chroma_embedding_function=_chroma_embedding_function,
         embedder=_embedder,
