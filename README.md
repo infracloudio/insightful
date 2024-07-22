@@ -8,8 +8,7 @@ Everything InSightful can do but better. By utilizing and exploiting the methods
 
 ## Overview of workflow
 
-![RAG-FC-Rerank](https://github.com/user-attachments/assets/25d19edb-c069-4fd0-a055-6ad1f12a6e37)
-
+![RAG-FC-Rerank](https://github.com/user-attachments/assets/f56de040-05e8-4307-be70-16929a72bafb)
 
 ## Prerequisites
 
