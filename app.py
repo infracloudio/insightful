@@ -14,6 +14,7 @@ from langchain_community.tools.stackexchange.tool import StackExchangeTool
 from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from langchain_core.prompts import PromptTemplate
 from langchain_chroma import Chroma
 import chromadb
 from chromadb.config import Settings
@@ -67,42 +68,58 @@ def setup_huggingface_embeddings():
     return embedder
 
 def load_prompt_and_system_ins():
-    prompt = hub.pull("hwchase17/react-chat")
+    #prompt = hub.pull("hwchase17/react-chat")
+    prompt = PromptTemplate.from_template("""
+                                        InSightful is a bot developed by InfraCloud Technologies.
+
+                                        InSightful is used to assist technical communities online on platforms such as Slack, Reddit and Discord.
+
+                                        InSightful can answer questions from conversations amongst community members and can also search StackOverflow for technical questions.
+
+                                        InSightful can also conduct its own research on the web to find answers to questions.
+
+                                        InSightful is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. InSightful is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
+                                        
+                                        InSightful is constantly learning and improving, and its capabilities are constantly evolving. It is able to process and understand large amounts of text, and can use this knowledge to provide accurate and informative responses to a wide range of questions. Additionally, InSightful is able to generate its own text based on the input it receives, allowing it to engage in discussions and provide explanations and descriptions on a wide range of topics.
+                                        
+                                        Overall, InSightful is a powerful tool that can help with a wide range of tasks and provide valuable insights and information on a wide range of topics. Whether you need help with a specific question or just want to have a conversation about a particular topic, InSightful is here to assist.
+                                        
+                                        TOOLS:
+                                        ------
+
+                                        InSightful has access to the following tools:
+
+                                        {tools}
+
+                                        To use a tool, please use the following format:
+
+                                        ```
+                                        Thought: Do I need to use a tool? Yes
+                                        Action: the action to take, should be one of [{tool_names}]
+                                        Action Input: the input to the action
+                                        Observation: the result of the action
+                                        ```
+                                        For the tavily_search_results_json tool, make sure the Action Input is a string derived from the new input.
+                                                                                
+                                        When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:
+
+                                        ```
+                                        Thought: Do I need to use a tool? No
+                                        Final Answer: [your response here]
+                                        ```
+
+                                        Begin!
+
+                                        Previous conversation history:
+                                        {chat_history}
+
+                                        New input: {input}
+                                        {agent_scratchpad}
+                                        """)
+    
     # Set up prompt template
     template = """
-    You are InSightful, a virtual assistant designed to help users with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model,
-    you are able to generate human-like text based on the input you receive, allowing you to engage in 
-    natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
-
-    Always provide accurate and informative responses to a wide range of questions. 
-
-    You can assess the health of a conversation from the engagement and understand the sentiment of the conversations on Slack.
-
-    You can assess if people are generally interested or disinterested in the conversation, and you can also determine if the conversation is positive or negative.
-
-    You do not answer questions about personal information, such as social security numbers,
-    credit card numbers, or other sensitive information. You also do not provide medical, legal, or financial advice.
-
-    You will not respond to any questions that are inappropriate or offensive. You are friendly, helpful,
-    and you are here to assist users with any questions they may have.
-
-    Keep your answers clear and concise, and provide as much information as possible to help users understand the topic.
-
-    Use your best judgement and only use any tool if you absolutely need to.
-
-    Tools provide you with more context and up-to-date information. Use them to your advantage.
-
-    Use the tools for any current information. Make sure to use the tools to verify your answers as well.
-
-    Thought: {thought}
-    Action: {action}
-    Action Input: {action_input}
-    Observation: {observation}
-
-    If you are ready with an answer use the format:
-    Thought: Do I have to use a tool? No
-    Final Answer: {observation}
-
+    Based on the retrieved context, respond with an accurate answer. Use the provided tools to support your response.
     """
 
     system_instructions = SystemMessage(
@@ -119,9 +136,9 @@ class RAG:
         self.collection_name = collection_name
         self.db_client = db_client
 
-    def load_documents(self, doc):
+    def load_documents(self, doc, num_docs=250):
         documents = []
-        for data in datasets.load_dataset(doc, split="train[:500]").to_list():
+        for data in datasets.load_dataset(doc, split=f"train[:{num_docs}]").to_list():
             documents.append(
                 Document(
                     page_content=data["text"],
@@ -176,7 +193,7 @@ def format_docs(docs):
 
 def create_retriever(name, model, description, client, chroma_embedding_function, embedder):
     rag = RAG(llm=model, embeddings=embedder, collection_name="Slack", db_client=client)
-    pages = rag.load_documents("spencer/software_slacks")
+    pages = rag.load_documents("spencer/software_slacks", num_docs=100)
     chunks = rag.chunk_doc(pages)
     vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
     retriever = vector_store.as_retriever(
@@ -190,12 +207,11 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
     stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
     stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
 
-    web_search_tool = TavilySearchResults(max_results=5,
-                                          search_depth = "advanced",
-                                          include_answer=True)
+    web_search_tool = TavilySearchResults(max_results=10,
+                                          handle_tool_error=True)
 
     retriever = create_retriever(
-        name="Slack conversations retriever",
+        name="slack_retriever",
         model=_model,
         description="Retrieves conversations from Slack for context.",
         client=_client,
