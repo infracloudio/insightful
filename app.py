@@ -1,8 +1,8 @@
 import os
 import uuid
-import streamlit as st
 import datasets
-from langchain_huggingface import HuggingFaceEndpointEmbeddings, ChatHuggingFace
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_community.chat_models import ChatHuggingFace
 from langchain_community.llms import HuggingFaceEndpoint
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -24,8 +24,31 @@ from langchain.schema import Document
 from langchain.retrievers import ContextualCompressionRetriever
 from tei_rerank import TEIRerank
 
+import streamlit as st
+import streamlit_authenticator as stauth
+
+import yaml
+from yaml.loader import SafeLoader
 
 st.set_page_config(layout="wide", page_title="InSightful")
+
+def authenticate():
+    with open('config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days'],
+        config['pre-authorized']
+    )
+
+    name, authentication_status, username = authenticator.login()
+    st.session_state['authentication_status'] = authentication_status
+    st.session_state['username'] = username
+    return authenticator
+
 
 # Set up Chroma DB client
 def setup_chroma_client():
@@ -304,4 +327,7 @@ def main():
     st.session_state["chat_history"] = chat_history
 
 if __name__ == "__main__":
-    main()
+    authenticator = authenticate()
+    if st.session_state['authentication_status']:
+        authenticator.logout()
+        main()
