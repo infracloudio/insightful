@@ -12,3 +12,4 @@ PyYAML==6.0.1
 Requests==2.32.3
 streamlit==1.36.0
 streamlit_authenticator==0.3.3
+stackapi==0.3.1
