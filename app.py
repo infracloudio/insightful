@@ -33,7 +33,7 @@ from yaml.loader import SafeLoader
 st.set_page_config(layout="wide", page_title="InSightful")
 
 def authenticate():
-    with open('config.yaml') as file:
+    with open('.streamlit/config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
 
     authenticator = stauth.Authenticate(
