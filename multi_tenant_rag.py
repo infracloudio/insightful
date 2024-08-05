@@ -1,4 +1,6 @@
 import streamlit as st
+import streamlit_authenticator as stauth
+from streamlit_authenticator.utilities import RegisterError, LoginError
 import os
 from langchain_community.vectorstores.chroma import Chroma
 from app import setup_chroma_client, setup_chroma_embedding_function
@@ -7,6 +9,40 @@ from app import RAG
 from langchain import hub
 import tempfile
 from langchain_community.document_loaders import PyPDFLoader
+
+import yaml
+from yaml.loader import SafeLoader
+
+def configure_authenticator():
+    with open('.streamlit/config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+    
+    authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days'],
+    config['pre-authorized']
+    )
+    return authenticator
+
+def authenticate(op):
+    authenticator = configure_authenticator()
+
+    if op == "login":
+        name, authentication_status, username = authenticator.login()
+        st.session_state['authentication_status'] = authentication_status
+        st.session_state['username'] = username
+    elif op == "register":
+        try:
+            (email_of_registered_user,
+            username_of_registered_user,
+            name_of_registered_user) = authenticator.register_user(pre_authorization=False)
+            if email_of_registered_user:
+                st.success('User registered successfully')
+        except RegisterError as e:
+            st.error(e)
+    return authenticator
 
 class MultiTenantRAG(RAG):
     def __init__(self, user_id, llm, embeddings, collection_name, db_client):
@@ -22,13 +58,13 @@ class MultiTenantRAG(RAG):
         return documents
 
 def main():
-    llm = setup_huggingface_endpoint()
+    llm = setup_huggingface_endpoint(model_id="qwen/Qwen2-7B-Instruct")
 
     embeddings = setup_huggingface_embeddings()
 
     chroma_embeddings = setup_chroma_embedding_function()
 
-    user_id = st.text_input("Enter user ID")
+    user_id = st.session_state['username']
 
     client = setup_chroma_client()
 
@@ -65,4 +101,7 @@ def main():
                 st.chat_message("assistant").markdown(answer)
 
 if __name__ == "__main__":
-    main()
+    authenticator = authenticate("login")
+    if st.session_state['authentication_status']:
+        authenticator.logout()
+        main()
