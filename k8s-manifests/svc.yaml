@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: insightful
+  name: insightful
+  namespace: ai-stack
+spec:
+  allocateLoadBalancerNodePorts: true
+  clusterIP: 10.233.39.226
+  clusterIPs:
+  - 10.233.39.226
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http
+    nodePort: 30150
+    port: 80
+    protocol: TCP
+    targetPort: 8501
+  selector:
+    app: insightful
+  sessionAffinity: None
+  type: LoadBalancer
+status:
+  loadBalancer:
+    ingress:
+    - ip: 192.168.0.206
+      ipMode: VIP

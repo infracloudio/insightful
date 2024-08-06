@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tokens
+  namespace: ai-stack
+type: Opaque
+data:
+  hf-token: "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"
+  tavily-token: "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"
+  stack-exchange-token: "z4v1VvgGdeTpBH2IefrTQg(("

@@ -30,6 +30,9 @@ import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from urllib3.exceptions import ProtocolError
+
 st.set_page_config(layout="wide", page_title="InSightful")
 
 def authenticate():
@@ -144,9 +147,10 @@ class RAG:
         self.collection_name = collection_name
         self.db_client = db_client
 
+    @retry(retry=retry_if_exception_type(ProtocolError), stop=stop_after_attempt(5), wait=wait_fixed(2))
     def load_documents(self, doc, num_docs=250):
         documents = []
-        for data in datasets.load_dataset(doc, split=f"train[:{num_docs}]").to_list():
+        for data in datasets.load_dataset(doc, split=f"train[:{num_docs}]", num_proc=10).to_list():
             documents.append(
                 Document(
                     page_content=data["text"],
@@ -249,7 +253,7 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
     #    embedder=_embedder,
     #)
 
-    if os.getenv("USE_RERANKER", "False") == "True":
+    if os.getenv("USE_RERANKER", "False") == True:
         retriever = create_reranker_retriever(
             name="slack_conversations_retriever",
             model=_model,
@@ -327,7 +331,7 @@ def main():
     st.session_state["chat_history"] = chat_history
 
 if __name__ == "__main__":
-    authenticator = authenticate()
-    if st.session_state['authentication_status']:
-        authenticator.logout()
+    #authenticator = authenticate()
+    #if st.session_state['authentication_status']:
+    #    authenticator.logout()
         main()

@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "9"
+    meta.helm.sh/release-name: ai-stack
+    meta.helm.sh/release-namespace: ai-stack
+  creationTimestamp: "2024-07-27T04:34:16Z"
+  generation: 9
+  labels:
+    app.kubernetes.io/instance: ai-stack
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: tgi
+    app.kubernetes.io/version: 2.2.0
+    helm.sh/chart: tgi-0.1.5
+  name: ai-stack-tgi
+  namespace: ai-stack
+  resourceVersion: "10815846"
+  uid: f826cd3e-8d41-4bb8-83a7-abaa41e37d53
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: ai-stack
+      app.kubernetes.io/name: tgi
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2024-08-02T16:52:08+05:30"
+      creationTimestamp: null
+      labels:
+        app.kubernetes.io/instance: ai-stack
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: tgi
+        app.kubernetes.io/version: 2.2.0
+        helm.sh/chart: tgi-0.1.5
+    spec:
+      containers:
+      - command:
+        - text-generation-launcher
+        env:
+        - name: MAX_INPUT_TOKENS
+          value: "6144"
+        - name: MAX_TOTAL_TOKENS
+          value: "8192"
+        - name: HF_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: HF_API_TOKEN
+              name: hf-api-token
+        - name: HF_HUB_OFFLINE
+          value: "1"
+        - name: MODEL_ID
+          value: Qwen/Qwen2-7B-Instruct
+        image: ghcr.io/huggingface/text-generation-inference:2.2.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 2
+        name: tgi
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 4
+          httpGet:
+            path: /health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 2
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+          requests:
+            nvidia.com/gpu: "1"
+        securityContext: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          name: hf-cache
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/hostname: infracloud03
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: ai-stack-tgi
+      serviceAccountName: ai-stack-tgi
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: hf-cache
+        persistentVolumeClaim:
+          claimName: hf-cache
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+        name: shm
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2024-07-27T04:34:16Z"
+    lastUpdateTime: "2024-08-02T11:22:55Z"
+    message: ReplicaSet "ai-stack-tgi-554994c8" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  - lastTransitionTime: "2024-08-06T06:11:09Z"
+    lastUpdateTime: "2024-08-06T06:11:09Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  observedGeneration: 9
+  readyReplicas: 1
+  replicas: 1
+  updatedReplicas: 1
