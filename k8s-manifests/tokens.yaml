@@ -5,6 +5,6 @@ metadata:
   namespace: ai-stack
 type: Opaque
 data:
-  hf-token: aGZfclVEVE1tWmhXd1FRUnpFdUdETGNjTWF6UVBlUVl1dm5ERQ==
-  tavily-token: dHZseS1BeWp3SVdXc05UbEZRTU5CRUFkQmtkZUhsN0ZPWHNDUA==
-  stack-exchange-token: ejR2MVZ2Z0dkZVRwQkgySWVmclRRZygo
+  hf-token: <hf-token>
+  tavily-token: <tavily-token>
+  stack-exchange-token: <stack-exchange-token>
