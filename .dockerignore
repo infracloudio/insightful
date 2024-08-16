@@ -1,0 +1,4 @@
+k8s-manifests/**
+.github/**
+__pycache__/**
+insf_venv/**

@@ -40,6 +40,7 @@ spec:
               name: tokens
               key: TAVILY_API_KEY
         image: ghcr.io/infracloudio/insightful:latest
+        command: ["streamlit", "run", "multi_tenant_rag.py", "--server.address", "0.0.0.0"]
         imagePullPolicy: Always
         name: insightful
         ports:
