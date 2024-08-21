@@ -109,7 +109,6 @@ def main():
             
         if question := st.chat_input("Chat with your doc"):
             st.chat_message("user").markdown(question)
-            chat_history.append({"role": "user", "content": question})
             with st.spinner():
                 answer = rag.query_docs(model=llm,
                                     question=question,
@@ -118,6 +117,9 @@ def main():
                                     chat_history=chat_history)
                 print("####\n#### Answer received by querying docs: " + answer + "\n####")
                 st.chat_message("assistant").markdown(answer)
+                chat_history.append({"role": "user", "content": question})
+                chat_history.append({"role": "assistant", "content": answer})
+                st.session_state["chat_history"] = chat_history
 
 if __name__ == "__main__":
     authenticator = authenticate("login")

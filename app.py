@@ -196,13 +196,16 @@ class RAG:
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 4}
         )
+        pass_question = lambda input: input["question"]
         rag_chain = (
-            {"context": retriever | format_docs, "chat_history": chat_history, "question": RunnablePassthrough()}
+            RunnablePassthrough.assign(
+                context= pass_question | retriever | format_docs
+            )
             | prompt
             | model
             | StrOutputParser()
         )
-        answer = rag_chain.invoke(question)
+        answer = rag_chain.invoke({"question": question, "chat_history": chat_history})
         return answer
 
 def format_docs(docs):
