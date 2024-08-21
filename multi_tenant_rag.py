@@ -3,7 +3,7 @@ import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import RegisterError, LoginError
 import os
 from langchain_community.vectorstores.chroma import Chroma
-from app import setup_chroma_client, setup_chroma_embedding_function
+from app import setup_chroma_client, setup_chroma_embedding_function, load_prompt_and_system_ins
 from app import setup_huggingface_embeddings, setup_huggingface_endpoint
 from app import RAG
 from langchain import hub
@@ -67,6 +67,22 @@ def main():
     user_id = st.session_state['username']
 
     client = setup_chroma_client()
+    # Set up prompt template
+    template = """
+    Based on the retrieved context, respond with an accurate answer.
+
+    Be concise and always provide accurate, specific, and relevant information.
+    """
+    
+    prompt, system_instructions = load_prompt_and_system_ins(template_file_path="templates/multi_tenant_rag_prompt_template.tmpl", template=template)
+    
+    chat_history = st.session_state.get(
+        "chat_history", [{"role": "system", "content": system_instructions.content}]
+    )
+
+    for message in chat_history[1:]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
     if user_id:
 
@@ -77,7 +93,7 @@ def main():
 
         rag = MultiTenantRAG(user_id, llm, embeddings, collection.name, client)
 
-        prompt = hub.pull("rlm/rag-prompt")
+        # prompt = hub.pull("rlm/rag-prompt")
 
         if uploaded_file:
             document = rag.load_documents(uploaded_file)
@@ -93,11 +109,14 @@ def main():
             
         if question := st.chat_input("Chat with your doc"):
             st.chat_message("user").markdown(question)
+            chat_history.append({"role": "user", "content": question})
             with st.spinner():
                 answer = rag.query_docs(model=llm,
                                     question=question,
                                     vector_store=vectorstore,
-                                    prompt=prompt)
+                                    prompt=prompt,
+                                    chat_history=chat_history)
+                print("####\n#### Answer received by querying docs: " + answer + "\n####")
                 st.chat_message("assistant").markdown(answer)
 
 if __name__ == "__main__":

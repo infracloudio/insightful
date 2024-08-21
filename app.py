@@ -122,9 +122,9 @@ def setup_huggingface_embeddings():
     )
     return embedder
 
-def load_prompt_and_system_ins():
+def load_prompt_and_system_ins(template_file_path="templates/prompt_template.tmpl", template=None):
     #prompt = hub.pull("hwchase17/react-chat")
-    prompt = PromptTemplate.from_file("templates/prompt_template.tmpl")
+    prompt = PromptTemplate.from_file(template_file_path)
     
     # Set up prompt template
     template = """
@@ -192,12 +192,12 @@ class RAG:
         print("Embeddings inserted\n")
         return db
 
-    def query_docs(self, model, question, vector_store, prompt):
+    def query_docs(self, model, question, vector_store, prompt, chat_history):
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 4}
         )
         rag_chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
+            {"context": retriever | format_docs, "chat_history": chat_history, "question": RunnablePassthrough()}
             | prompt
             | model
             | StrOutputParser()
