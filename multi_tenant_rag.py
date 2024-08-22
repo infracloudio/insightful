@@ -1,29 +1,22 @@
-# from langchain.globals import set_verbose, set_debug
-
-# set_verbose(True)
-# set_debug(True)
-
+import os
+import tempfile
+import yaml
+from yaml.loader import SafeLoader
 import streamlit as st
 import streamlit_authenticator as stauth
-from streamlit_authenticator.utilities import RegisterError, LoginError
-import os
+from streamlit_authenticator.utilities import RegisterError
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores.chroma import Chroma
+from unstructured.cleaners.core import clean_extra_whitespace, group_broken_paragraphs
+
 from app import (
     setup_chroma_client,
     hf_embedding_server,
     load_prompt_and_system_ins,
+    setup_huggingface_embeddings,
+    setup_huggingface_endpoint,
+    RAG,
 )
-from app import setup_huggingface_embeddings, setup_huggingface_endpoint
-from app import RAG
-from langchain import hub
-import tempfile
-from langchain_community.document_loaders import PyPDFLoader
-from unstructured.cleaners.core import clean_extra_whitespace, group_broken_paragraphs
-from langchain_core.documents import Document
-
-import yaml
-from yaml.loader import SafeLoader
-
 
 def configure_authenticator():
     with open(".streamlit/config.yaml") as file:
@@ -148,17 +141,19 @@ def main():
                     vector_store=vectorstore,
                     prompt=prompt,
                     chat_history=chat_history,
+                    use_reranker=False,
                 )
                 # print(
                 #     "####\n#### Answer received by querying docs: " + answer + "\n####"
                 # )
 
-                answer_with_reranker = rag.query_docs_with_reranker(
+                answer_with_reranker = rag.query_docs(
                     model=llm,
                     question=question,
                     vector_store=vectorstore,
                     prompt=prompt,
                     chat_history=chat_history,
+                    use_reranker=True,
                 )
 
                 st.chat_message("assistant").markdown(answer)

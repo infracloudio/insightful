@@ -15,12 +15,10 @@ from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
-from langchain_chroma import Chroma
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
 
-from langchain.schema import Document
 from langchain.retrievers import ContextualCompressionRetriever
 from tei_rerank import TEIRerank
 from transformers import AutoTokenizer
@@ -177,15 +175,20 @@ class RAG:
         return documents
 
     def chunk_doc(self, pages, chunk_size=512, chunk_overlap=30):
-        tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-large-en-v1.5")
+        tokenizer = AutoTokenizer.from_pretrained(
+            "BAAI/bge-large-en-v1.5"
+        )
         text_splitter = RecursiveCharacterTextSplitter.from_huggingface_tokenizer(
-            tokenizer, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            tokenizer,
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
         chunks = text_splitter.split_documents(pages)
         print("Document chunked")
         return chunks
 
-    def insert_embeddings(self, chunks, chroma_embedding_function, batch_size=32):
+    def insert_embeddings(
+        self, chunks, chroma_embedding_function, batch_size=32
+    ):
         print(
             "Inserting embeddings into collection: {collection_name}".format(
                 collection_name=self.collection_name
@@ -209,10 +212,23 @@ class RAG:
         print("Embeddings inserted\n")
         # return db
 
-    def query_docs(self, model, question, vector_store, prompt, chat_history):
+    def query_docs(self, model, question, vector_store, prompt, chat_history, use_reranker=False):
         retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 4}
+                search_type="similarity", search_kwargs={"k": 10}
         )
+        if use_reranker:
+            compressor = TEIRerank(
+                url="http://{host}:{port}".format(
+                    host=os.getenv("RERANKER_HOST", "localhost"),
+                    port=os.getenv("RERANKER_PORT", "8082"),
+                ),
+                top_n=4,
+                batch_size=10,
+            )
+            retriever = ContextualCompressionRetriever(
+                base_compressor=compressor, base_retriever=retriever
+            )
+
         pass_question = lambda input: input["question"]
         rag_chain = (
             RunnablePassthrough.assign(context=pass_question | retriever | format_docs)
@@ -220,79 +236,44 @@ class RAG:
             | model
             | StrOutputParser()
         )
+        
         answer = rag_chain.invoke({"question": question, "chat_history": chat_history})
         return answer
-
-    def query_docs_with_reranker(
-        self, model, question, vector_store, prompt, chat_history
-    ):
-        retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 20}
-        )
-        compressor = TEIRerank(
-            url="http://{host}:{port}".format(
-                host=os.getenv("RERANKER_HOST", "localhost"),
-                port=os.getenv("RERANKER_PORT", "8082"),
-            ),
-            top_n=4,
-            batch_size=10,
-        )
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=retriever
-        )
-        pass_question = lambda input: input["question"]
-        rag_chain = (
-            RunnablePassthrough.assign(
-                context=pass_question | compression_retriever | format_docs
-            )
-            | prompt
-            | model
-            | StrOutputParser()
-        )
-        answer = rag_chain.invoke({"question": question, "chat_history": chat_history})
-        return answer
-
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
 
 def create_retriever(
-    name, model, description, client, chroma_embedding_function, embedder
-):
-    rag = RAG(collection_name="Slack", db_client=client)
-    pages = rag.load_documents("spencer/software_slacks")
-    chunks = rag.chunk_doc(pages)
-    vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
-    retriever = vector_store.as_retriever(
-        search_type="similarity", search_kwargs={"k": 10}
-    )
-    info_retriever = create_retriever_tool(retriever, name, description)
-    return info_retriever
-
-
-def create_reranker_retriever(
-    name, model, description, client, chroma_embedding_function, embedder
+    name, model, description, client, chroma_embedding_function, embedder, reranker=False
 ):
     rag = RAG(collection_name="Slack", db_client=client)
     pages = rag.load_documents("spencer/software_slacks", num_docs=100)
     chunks = rag.chunk_doc(pages)
     vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
-    compressor = TEIRerank(
-        url="http://{host}:{port}".format(
-            host=os.getenv("RERANKER_HOST", "localhost"),
-            port=os.getenv("RERANKER_PORT", "8082"),
-        ),
-        top_n=10,
-        batch_size=16,
-    )
-    retriever = vector_store.as_retriever(
-        search_type="similarity", search_kwargs={"k": 100}
-    )
-    compression_retriever = ContextualCompressionRetriever(
-        base_compressor=compressor, base_retriever=retriever
-    )
-    info_retriever = create_retriever_tool(compression_retriever, name, description)
+
+    if reranker:
+        compressor = TEIRerank(
+            url="http://{host}:{port}".format(
+                host=os.getenv("RERANKER_HOST", "localhost"),
+                port=os.getenv("RERANKER_PORT", "8082"),
+            ),
+            top_n=10,
+            batch_size=16,
+        )
+        retriever = vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": 100}
+        )
+        compression_retriever = ContextualCompressionRetriever(
+            base_compressor=compressor, base_retriever=retriever
+        )
+        info_retriever = create_retriever_tool(compression_retriever, name, description)
+    else:
+        retriever = vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": 10}
+        )
+        info_retriever = create_retriever_tool(retriever, name, description)
+
     return info_retriever
 
 
@@ -302,34 +283,16 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
 
     web_search_tool = TavilySearchResults(max_results=10, handle_tool_error=True)
 
-    # retriever = create_retriever(
-    #    name="Slack conversations retriever",
-    #    model=_model,
-    #    description="Retrieves conversations from Slack for context.",
-    #    client=_client,
-    #    chroma_embedding_function=_chroma_embedding_function,
-    #    embedder=_embedder,
-    # )
-
-    if os.getenv("USE_RERANKER", "False") == True:
-        retriever = create_reranker_retriever(
-            name="slack_conversations_retriever",
-            model=_model,
-            description="Useful for when you need to answer from Slack conversations.",
-            client=_client,
-            chroma_embedding_function=_chroma_embedding_function,
-            embedder=_embedder,
-        )
-    else:
-        retriever = create_retriever(
-            name="slack_conversations_retriever",
-            model=_model,
-            description="Useful for when you need to answer from Slack conversations.",
-            client=_client,
-            chroma_embedding_function=_chroma_embedding_function,
-            embedder=_embedder,
-        )
-
+    use_reranker = os.getenv("USE_RERANKER", "False") == "True"
+    retriever = create_retriever(
+        name="slack_conversations_retriever",
+        model=_model,
+        description="Useful for when you need to answer from Slack conversations.",
+        client=_client,
+        chroma_embedding_function=_chroma_embedding_function,
+        embedder=_embedder,
+        reranker=use_reranker,
+    )
     return [web_search_tool, stackexchange_tool, retriever]
 
 
@@ -365,7 +328,7 @@ def main():
     st.text("Made with ❤️ by InfraCloud Technologies")
     st.markdown(
         """
-    InSightful is an AI assistant that helps you with your questions. 
+    InSightful is an AI assistant that helps you with your questions.
     - It can browse past conversations with your colleagues/teammates and can search StackOverflow for technical questions.
     - With access to the web, InSightful can also conduct its own research for you."""
     )
