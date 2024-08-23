@@ -15,14 +15,14 @@ from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
-from langchain_chroma import Chroma
+from langchain_community.vectorstores.chroma import Chroma
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
 
-from langchain.schema import Document
 from langchain.retrievers import ContextualCompressionRetriever
 from tei_rerank import TEIRerank
+from transformers import AutoTokenizer
 
 import streamlit as st
 import streamlit_authenticator as stauth
@@ -35,21 +35,22 @@ from urllib3.exceptions import ProtocolError
 
 st.set_page_config(layout="wide", page_title="InSightful")
 
+
 def authenticate():
-    with open('.streamlit/config.yaml') as file:
+    with open(".streamlit/config.yaml") as file:
         config = yaml.load(file, Loader=SafeLoader)
 
     authenticator = stauth.Authenticate(
-        config['credentials'],
-        config['cookie']['name'],
-        config['cookie']['key'],
-        config['cookie']['expiry_days'],
-        config['pre-authorized']
+        config["credentials"],
+        config["cookie"]["name"],
+        config["cookie"]["key"],
+        config["cookie"]["expiry_days"],
+        config["pre-authorized"],
     )
 
     name, authentication_status, username = authenticator.login()
-    st.session_state['authentication_status'] = authentication_status
-    st.session_state['username'] = username
+    st.session_state["authentication_status"] = authentication_status
+    st.session_state["username"] = username
     return authenticator
 
 
@@ -60,20 +61,20 @@ def setup_chroma_client():
             host=os.getenv("VECTORDB_HOST", "localhost"),
             port=os.getenv("VECTORDB_PORT", "8000"),
         ),
-        settings=Settings(allow_reset=True, 
-                          anonymized_telemetry=False)
-
+        settings=Settings(allow_reset=True, anonymized_telemetry=False),
     )
     return client
 
+
 # Set up Chroma embedding function
-def setup_chroma_embedding_function():
-    chroma_embedding_function = HuggingFaceEmbeddingServer(
+def hf_embedding_server():
+    _embedding_function = HuggingFaceEmbeddingServer(
         url="http://{host}:{port}/embed".format(
             host=os.getenv("TEI_HOST", "localhost"), port=os.getenv("TEI_PORT", "8081")
         )
     )
-    return chroma_embedding_function
+    return _embedding_function
+
 
 # Set up HuggingFaceEndpoint model
 def setup_huggingface_endpoint(model_id):
@@ -85,24 +86,27 @@ def setup_huggingface_endpoint(model_id):
         task="conversational",
         stop_sequences=[
             "<|im_end|>",
-            "{your_token}".format(your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")),
+            "{your_token}".format(
+                your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")
+            ),
         ],
     )
 
-    model = ChatHuggingFace(llm=llm,
-                            model_id=model_id)
+    model = ChatHuggingFace(llm=llm, model_id=model_id)
 
     return model
+
 
 def setup_portkey_integrated_model():
     from portkey_ai import createHeaders, PORTKEY_GATEWAY_URL
     from langchain_openai import ChatOpenAI
+
     portkey_headers = createHeaders(
         api_key=os.getenv("PORTKEY_API_KEY"),
         custom_host=os.getenv("PORTKEY_CUSTOM_HOST"),
-        provider=os.getenv("PORTKEY_PROVIDER")
+        provider=os.getenv("PORTKEY_PROVIDER"),
     )
-    
+
     model = ChatOpenAI(
         api_key="None",
         base_url=PORTKEY_GATEWAY_URL,
@@ -111,6 +115,7 @@ def setup_portkey_integrated_model():
     )
 
     return model
+
 
 # Set up HuggingFaceEndpointEmbeddings embedder
 def setup_huggingface_embeddings():
@@ -122,10 +127,13 @@ def setup_huggingface_embeddings():
     )
     return embedder
 
-def load_prompt_and_system_ins(template_file_path="templates/prompt_template.tmpl", template=None):
-    #prompt = hub.pull("hwchase17/react-chat")
+
+def load_prompt_and_system_ins(
+    template_file_path="templates/prompt_template.tmpl", template=None
+):
+    # prompt = hub.pull("hwchase17/react-chat")
     prompt = PromptTemplate.from_file(template_file_path)
-    
+
     # Set up prompt template
     template = """
     Based on the retrieved context, respond with an accurate answer. Use the provided tools to support your response.
@@ -140,156 +148,185 @@ def load_prompt_and_system_ins(template_file_path="templates/prompt_template.tmp
 
     return prompt, system_instructions
 
+
 class RAG:
-    def __init__(self, llm, embeddings, collection_name, db_client):
-        self.llm = llm
-        self.embeddings = embeddings
+    def __init__(self, collection_name, db_client):
+        # self.llm = llm
+        # self.embedding_svc = embedding_svc
         self.collection_name = collection_name
         self.db_client = db_client
 
-    @retry(retry=retry_if_exception_type(ProtocolError), stop=stop_after_attempt(5), wait=wait_fixed(2))
+    @retry(
+        retry=retry_if_exception_type(ProtocolError),
+        stop=stop_after_attempt(5),
+        wait=wait_fixed(2),
+    )
     def load_documents(self, doc, num_docs=250):
         documents = []
-        for data in datasets.load_dataset(doc, split=f"train[:{num_docs}]", num_proc=10).to_list():
+        for data in datasets.load_dataset(
+            doc, split=f"train[:{num_docs}]", num_proc=10
+        ).to_list():
             documents.append(
                 Document(
                     page_content=data["text"],
-                    metadata=dict(user=data["user"], 
-                                  workspace=data["workspace"]),
+                    metadata=dict(user=data["user"], workspace=data["workspace"]),
                 )
             )
         print("Document loaded")
         return documents
 
     def chunk_doc(self, pages, chunk_size=512, chunk_overlap=30):
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-large-en-v1.5")
+        text_splitter = RecursiveCharacterTextSplitter.from_huggingface_tokenizer(
+            tokenizer, chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
         chunks = text_splitter.split_documents(pages)
         print("Document chunked")
         return chunks
 
-    def insert_embeddings(self, chunks, chroma_embedding_function, embedder, batch_size=32):
+    def insert_embeddings(self, chunks, chroma_embedding_function, batch_size=32):
+        print(
+            "Inserting embeddings into collection: {collection_name}".format(
+                collection_name=self.collection_name
+            )
+        )
         collection = self.db_client.get_or_create_collection(
             self.collection_name, embedding_function=chroma_embedding_function
         )
         for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
+            batch = chunks[i : i + batch_size]
             chunk_ids = [str(uuid.uuid1()) for _ in batch]
             metadatas = [chunk.metadata for chunk in batch]
             documents = [chunk.page_content for chunk in batch]
-            
-            collection.add(
-                ids=chunk_ids,
-                metadatas=metadatas,
-                documents=documents
-        )
-        db = Chroma(
-            embedding_function=embedder,
-            collection_name=self.collection_name,
-            client=self.db_client,
-        )
-        print("Embeddings inserted\n")
-        return db
 
-    def query_docs(self, model, question, vector_store, prompt, chat_history):
+            collection.add(ids=chunk_ids, metadatas=metadatas, documents=documents)
+        # db = Chroma(
+        #     embedding_function=embedder,
+        #     collection_name=self.collection_name,
+        #     client=self.db_client,
+        # )
+        print("Embeddings inserted\n")
+        # return db
+
+    def query_docs(
+        self, model, question, vector_store, prompt, chat_history, use_reranker=False
+    ):
         retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 4}
+            search_type="similarity", search_kwargs={"k": 10}
         )
+        if use_reranker:
+            compressor = TEIRerank(
+                url="http://{host}:{port}".format(
+                    host=os.getenv("RERANKER_HOST", "localhost"),
+                    port=os.getenv("RERANKER_PORT", "8082"),
+                ),
+                top_n=4,
+                batch_size=10,
+            )
+            retriever = ContextualCompressionRetriever(
+                base_compressor=compressor, base_retriever=retriever
+            )
+
         pass_question = lambda input: input["question"]
         rag_chain = (
-            RunnablePassthrough.assign(
-                context= pass_question | retriever | format_docs
-            )
+            RunnablePassthrough.assign(context=pass_question | retriever | format_docs)
             | prompt
             | model
             | StrOutputParser()
         )
+
         answer = rag_chain.invoke({"question": question, "chat_history": chat_history})
         return answer
+
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-def create_retriever(name, model, description, client, chroma_embedding_function, embedder):
-    rag = RAG(llm=model, embeddings=embedder, collection_name="Slack", db_client=client)
-    pages = rag.load_documents("spencer/software_slacks")
-    chunks = rag.chunk_doc(pages)
-    vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
-    retriever = vector_store.as_retriever(
-        search_type="similarity", search_kwargs={"k": 10}
-    )
-    info_retriever = create_retriever_tool(retriever, name, description)
-    return info_retriever
 
-def create_reranker_retriever(name, model, description, client, chroma_embedding_function, embedder):
-    rag = RAG(llm=model, embeddings=embedder, collection_name="Slack", db_client=client)
+def create_retriever(
+    name, description, client, chroma_embedding_function, embedding_svc, reranker=False
+):
+    collection_name = "software-slacks"
+    rag = RAG(collection_name=collection_name, db_client=client)
     pages = rag.load_documents("spencer/software_slacks", num_docs=100)
     chunks = rag.chunk_doc(pages)
-    vector_store = rag.insert_embeddings(chunks, chroma_embedding_function, embedder)
-    compressor = TEIRerank(url="http://{host}:{port}".format(host=os.getenv("RERANKER_HOST", "localhost"), 
-                                                                    port=os.getenv("RERANKER_PORT", "8082")), 
-                                                                    top_n=10,
-                                                                    batch_size=16)
-    retriever = vector_store.as_retriever(
-        search_type="similarity", search_kwargs={"k": 100}
+    rag.insert_embeddings(chunks, chroma_embedding_function)
+    vector_store = Chroma(
+        embedding_function=embedding_svc,
+        collection_name=collection_name,
+        client=client,
     )
-    compression_retriever = ContextualCompressionRetriever(
-        base_compressor=compressor, base_retriever=retriever
-    )
-    info_retriever = create_retriever_tool(compression_retriever, name, description)
+    if reranker:
+        compressor = TEIRerank(
+            url="http://{host}:{port}".format(
+                host=os.getenv("RERANKER_HOST", "localhost"),
+                port=os.getenv("RERANKER_PORT", "8082"),
+            ),
+            top_n=10,
+            batch_size=16,
+        )
+
+        retriever = vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": 100}
+        )
+        compression_retriever = ContextualCompressionRetriever(
+            base_compressor=compressor, base_retriever=retriever
+        )
+        info_retriever = create_retriever_tool(compression_retriever, name, description)
+    else:
+        retriever = vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": 10}
+        )
+        info_retriever = create_retriever_tool(retriever, name, description)
+
     return info_retriever
 
+
 def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
-    stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
-    stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
+    tools = []
+    if (
+        os.getenv("STACK_OVERFLOW_API_KEY")
+        and os.getenv("STACK_OVERFLOW_API_KEY").strip()
+    ):
+        stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
+        stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
+        tools.append(stackexchange_tool)
 
-    web_search_tool = TavilySearchResults(max_results=10,
-                                          handle_tool_error=True)
+    if os.getenv("TAVILY_API_KEY") and os.getenv("TAVILY_API_KEY").strip():
+        web_search_tool = TavilySearchResults(max_results=10, handle_tool_error=True)
+        tools.append(web_search_tool)
 
-    #retriever = create_retriever(
-    #    name="Slack conversations retriever",
-    #    model=_model,
-    #    description="Retrieves conversations from Slack for context.",
-    #    client=_client,
-    #    chroma_embedding_function=_chroma_embedding_function,
-    #    embedder=_embedder,
-    #)
+    use_reranker = os.getenv("USE_RERANKER", "False") == "True"
+    retriever = create_retriever(
+        "slack_conversations_retriever",
+        "Useful for when you need to answer from Slack conversations.",
+        _client,
+        _chroma_embedding_function,
+        _embedder,
+        reranker=use_reranker,
+    )
+    tools.append(retriever)
 
-    if os.getenv("USE_RERANKER", "False") == True:
-        retriever = create_reranker_retriever(
-            name="slack_conversations_retriever",
-            model=_model,
-            description="Useful for when you need to answer from Slack conversations.",
-            client=_client,
-            chroma_embedding_function=_chroma_embedding_function,
-            embedder=_embedder,
-        )
-    else:
-        retriever = create_retriever(
-            name="slack_conversations_retriever",
-            model=_model,
-            description="Useful for when you need to answer from Slack conversations.",
-            client=_client,
-            chroma_embedding_function=_chroma_embedding_function,
-            embedder=_embedder,
-        )
+    return tools
 
-
-    return [web_search_tool, stackexchange_tool, retriever]
 
 @st.cache_resource
 def setup_agent(_model, _prompt, _client, _chroma_embedding_function, _embedder):
     tools = setup_tools(_model, _client, _chroma_embedding_function, _embedder)
-    agent = create_react_agent(llm=_model, prompt=_prompt, tools=tools, )
+    agent = create_react_agent(
+        llm=_model,
+        prompt=_prompt,
+        tools=tools,
+    )
     agent_executor = AgentExecutor(
         agent=agent, verbose=True, tools=tools, handle_parsing_errors=True
     )
     return agent_executor
 
+
 def main():
     client = setup_chroma_client()
-    chroma_embedding_function = setup_chroma_embedding_function()
+    chroma_embedding_function = hf_embedding_server()
     prompt, system_instructions = load_prompt_and_system_ins()
     if os.getenv("ENABLE_PORTKEY", "False") == "True":
         model = setup_portkey_integrated_model()
@@ -305,7 +342,7 @@ def main():
     st.text("Made with ❤️ by InfraCloud Technologies")
     st.markdown(
         """
-    InSightful is an AI assistant that helps you with your questions. 
+    InSightful is an AI assistant that helps you with your questions.
     - It can browse past conversations with your colleagues/teammates and can search StackOverflow for technical questions.
     - With access to the web, InSightful can also conduct its own research for you."""
     )
@@ -333,8 +370,9 @@ def main():
 
     st.session_state["chat_history"] = chat_history
 
+
 if __name__ == "__main__":
-    #authenticator = authenticate()
-    #if st.session_state['authentication_status']:
+    # authenticator = authenticate()
+    # if st.session_state['authentication_status']:
     #    authenticator.logout()
-        main()
+    main()

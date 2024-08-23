@@ -10,6 +10,18 @@ credentials:
       logged_in: false
       name: John Doe
       password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+    stest:
+      email: sankettest@gmail.com
+      failed_login_attempts: 0
+      logged_in: false
+      name: Sanket Test
+      password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+    stest2:
+      email: sankettest@gmail.com
+      failed_login_attempts: 0
+      logged_in: false
+      name: Sanket Test
+      password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
     rbriggs:
       email: rbriggs@gmail.com
       failed_login_attempts: 0
