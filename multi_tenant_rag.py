@@ -3,15 +3,25 @@ import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import RegisterError, LoginError
 import os
 from langchain_community.vectorstores.chroma import Chroma
+from annual_still_births_by_state import AnnualStillBirthsByStateAPIClient, AnnualStillBirthsByStateTool
+from annual_still_births import AnnualStillBirthsAPIClient, AnnualStillBirthsTool
+from annual_live_births_by_state import AnnualLiveBirthsByStateAPIClient, AnnualLiveBirthsByStateTool
+from annual_live_births import AnnualLiveBirthsAPIClient, AnnualLiveBirthsTool
+from daily_live_births import DailyLiveBirthsAPIClient, DailyLiveBirthsTool
 from app import setup_chroma_client, setup_chroma_embedding_function, load_prompt_and_system_ins
-from app import setup_huggingface_embeddings, setup_huggingface_endpoint
+from app import setup_huggingface_embeddings, setup_huggingface_endpoint, setup_agent
 from app import RAG
+from car_registrations import CarRegistrationTool, CarRegistrationAPIClient
 from langchain import hub
 import tempfile
 from langchain_community.document_loaders import PyPDFLoader
 
 import yaml
 from yaml.loader import SafeLoader
+# from langchain.globals import set_verbose, set_debug
+
+# set_verbose(True)
+# set_debug(True)
 
 def configure_authenticator():
     with open('.streamlit/config.yaml') as file:
@@ -57,15 +67,31 @@ class MultiTenantRAG(RAG):
         documents = loader.load()
         return documents
 
+def setup_tools():
+    car_registration_tool = CarRegistrationTool(api_wrapper=CarRegistrationAPIClient())
+    annual_live_births_tool = AnnualLiveBirthsTool(api_wrapper=AnnualLiveBirthsAPIClient())
+    annual_live_births_by_state_tool = AnnualLiveBirthsByStateTool(api_wrapper=AnnualLiveBirthsByStateAPIClient())
+    annual_still_births_tool = AnnualStillBirthsByStateTool(api_wrapper=AnnualStillBirthsByStateAPIClient())
+    annual_still_births_by_state_tool = AnnualStillBirthsTool(api_wrapper=AnnualStillBirthsAPIClient())
+    daily_live_births_tool = DailyLiveBirthsTool(api_wrapper=DailyLiveBirthsAPIClient())
+    # append car registration tool to tools
+    tools = [
+        car_registration_tool, 
+        annual_live_births_tool, 
+        annual_live_births_by_state_tool, 
+        annual_still_births_tool, 
+        annual_still_births_by_state_tool, 
+        daily_live_births_tool
+    ]
+    
+    return tools
+
 def main():
-    llm = setup_huggingface_endpoint(model_id="qwen/Qwen2-7B-Instruct")
-
+    # llm = setup_huggingface_endpoint(model_id="qwen/Qwen2-7B-Instruct")
+    llm = setup_huggingface_endpoint(model_id="meta-llama/Meta-Llama-3.1-8B-Instruct")
     embeddings = setup_huggingface_embeddings()
-
     chroma_embeddings = setup_chroma_embedding_function()
-
     user_id = st.session_state['username']
-
     client = setup_chroma_client()
     # Set up prompt template
     template = """
@@ -75,6 +101,11 @@ def main():
     """
     
     prompt, system_instructions = load_prompt_and_system_ins(template_file_path="templates/multi_tenant_rag_prompt_template.tmpl", template=template)
+    
+    tools = setup_tools()
+    agent_executor = setup_agent(llm, prompt, tools)
+    st.title("InSightful: Your AI Assistant for community questions")
+    st.text("Made with ❤️ by InfraCloud Technologies")
     
     chat_history = st.session_state.get(
         "chat_history", [{"role": "system", "content": system_instructions.content}]
@@ -110,12 +141,17 @@ def main():
         if question := st.chat_input("Chat with your doc"):
             st.chat_message("user").markdown(question)
             with st.spinner():
-                answer = rag.query_docs(model=llm,
-                                    question=question,
-                                    vector_store=vectorstore,
-                                    prompt=prompt,
-                                    chat_history=chat_history)
-                print("####\n#### Answer received by querying docs: " + answer + "\n####")
+                # answer = rag.query_docs(model=llm,
+                #                     question=question,
+                #                     vector_store=vectorstore,
+                #                     prompt=prompt,
+                #                     chat_history=chat_history)
+                answer = agent_executor.invoke(
+                    {
+                        "question": question,
+                        "chat_history": chat_history,
+                    }
+                )["output"]
                 st.chat_message("assistant").markdown(answer)
                 chat_history.append({"role": "user", "content": question})
                 chat_history.append({"role": "assistant", "content": answer})

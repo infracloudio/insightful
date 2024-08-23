@@ -61,7 +61,7 @@ spec:
           mountPath: /tmp/
       dnsPolicy: ClusterFirst
       nodeSelector:
-        kubernetes.io/hostname: infracloud02      
+        kubernetes.io/hostname: infracloud01
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext: {}

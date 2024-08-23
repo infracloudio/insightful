@@ -16,6 +16,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
 from langchain_chroma import Chroma
+from langchain.agents import initialize_agent
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
@@ -81,12 +82,13 @@ def setup_huggingface_endpoint(model_id):
         endpoint_url="http://{host}:{port}".format(
             host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
         ),
-        temperature=0.3,
+        temperature=0.1,
         task="conversational",
         stop_sequences=[
             "<|im_end|>",
             "{your_token}".format(your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")),
         ],
+        max_new_tokens=1024,
     )
 
     model = ChatHuggingFace(llm=llm,
@@ -207,6 +209,18 @@ class RAG:
         )
         answer = rag_chain.invoke({"question": question, "chat_history": chat_history})
         return answer
+    
+    def query_tools_and_answer(self, model, tools, agent_type, vector_store, prompt, chat_history):
+        retriever = vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": 4}
+        )
+        agent = initialize_agent(
+            tools=tools,
+            llm=model,
+            agent_type=agent_type,
+            retriever=retriever,
+            verbose=True,
+        )
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
@@ -279,11 +293,10 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
     return [web_search_tool, stackexchange_tool, retriever]
 
 @st.cache_resource
-def setup_agent(_model, _prompt, _client, _chroma_embedding_function, _embedder):
-    tools = setup_tools(_model, _client, _chroma_embedding_function, _embedder)
-    agent = create_react_agent(llm=_model, prompt=_prompt, tools=tools, )
+def setup_agent(_model, _prompt, _tools):
+    agent = create_react_agent(llm=_model, prompt=_prompt, tools=_tools, )
     agent_executor = AgentExecutor(
-        agent=agent, verbose=True, tools=tools, handle_parsing_errors=True
+        agent=agent, verbose=True, tools=_tools, handle_parsing_errors=True, max_iterations=30
     )
     return agent_executor
 
@@ -296,10 +309,9 @@ def main():
     else:
         model = setup_huggingface_endpoint(model_id="qwen/Qwen2-7B-Instruct")
     embedder = setup_huggingface_embeddings()
+    tools = setup_tools(model, client, chroma_embedding_function, embedder)
 
-    agent_executor = setup_agent(
-        model, prompt, client, chroma_embedding_function, embedder
-    )
+    agent_executor = setup_agent(model, prompt, tools)
 
     st.title("InSightful: Your AI Assistant for community questions")
     st.text("Made with ❤️ by InfraCloud Technologies")
