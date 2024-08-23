@@ -18,7 +18,6 @@ from app import (
     RAG,
 )
 
-
 def configure_authenticator():
     with open(".streamlit/config.yaml") as file:
         config = yaml.load(file, Loader=SafeLoader)
@@ -147,21 +146,23 @@ def main():
                 chat_history=chat_history,
                 use_reranker=False,
             )
+            with st.chat_message("assistant"):
+                answer = st.write_stream(answer)
             # print(
             #     "####\n#### Answer received by querying docs: " + answer + "\n####"
             # )
 
-            answer_with_reranker = rag.query_docs(
-                model=llm,
-                question=question,
-                vector_store=vectorstore,
-                prompt=prompt,
-                chat_history=chat_history,
-                use_reranker=True,
-            )
+            # answer_with_reranker = rag.query_docs(
+            #     model=llm,
+            #     question=question,
+            #     vector_store=vectorstore,
+            #     prompt=prompt,
+            #     chat_history=chat_history,
+            #     use_reranker=True,
+            # )
 
-            st.chat_message("assistant").markdown(answer)
-            st.chat_message("assistant").markdown(answer_with_reranker)
+            # st.chat_message("assistant").markdown(answer)
+            # st.chat_message("assistant").markdown(answer_with_reranker)
 
             chat_history.append({"role": "user", "content": question})
             chat_history.append({"role": "assistant", "content": answer})

@@ -89,6 +89,7 @@ def setup_huggingface_endpoint(model_id):
         task="conversational",
         stop_sequences=[
             "<|im_end|>",
+            "<|eot_id|>",
             "{your_token}".format(
                 your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")
             ),
@@ -242,9 +243,7 @@ class RAG:
             | StrOutputParser()
         )
 
-        answer = rag_chain.invoke({"question": question, "chat_history": chat_history})
-        return answer
-
+        return rag_chain.stream({"question": question, "chat_history": chat_history})
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
