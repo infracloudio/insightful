@@ -15,11 +15,13 @@ from langchain_community.vectorstores.chroma import Chroma
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
-
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from urllib3.exceptions import ProtocolError
 from langchain.retrievers import ContextualCompressionRetriever
-from tei_rerank import TEIRerank
 from transformers import AutoTokenizer
+
 from tools import get_tools
+from tei_rerank import TEIRerank
 
 import streamlit as st
 import streamlit_authenticator as stauth
@@ -31,9 +33,6 @@ from langchain.globals import set_verbose, set_debug
 
 set_verbose(True)
 set_debug(True)
-
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
-from urllib3.exceptions import ProtocolError
 
 st.set_page_config(layout="wide", page_title="InSightful")
 
@@ -201,9 +200,7 @@ class RAG:
             collection.add(ids=chunk_ids, metadatas=metadatas, documents=documents)
         print("Embeddings inserted\n")
 
-    def query_docs(
-        self, model, question, vector_store, prompt, chat_history, use_reranker=False
-    ):
+    def get_retriever(self, vector_store, use_reranker=False):
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 10}
         )
@@ -219,7 +216,12 @@ class RAG:
             retriever = ContextualCompressionRetriever(
                 base_compressor=compressor, base_retriever=retriever
             )
+        return retriever
 
+    def query_docs(
+        self, model, question, vector_store, prompt, chat_history, use_reranker=False
+    ):
+        retriever = self.get_retriever(vector_store, use_reranker)
         pass_question = lambda input: input["question"]
         rag_chain = (
             RunnablePassthrough.assign(context=pass_question | retriever | format_docs)
@@ -248,31 +250,12 @@ def create_retriever(
         collection_name=collection_name,
         client=client,
     )
-    if reranker:
-        compressor = TEIRerank(
-            url="http://{host}:{port}".format(
-                host=os.getenv("RERANKER_HOST", "localhost"),
-                port=os.getenv("RERANKER_PORT", "8082"),
-            ),
-            top_n=10,
-            batch_size=16,
-        )
+    retriever = rag.get_retriever(vector_store, use_reranker=reranker)
 
-        retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 100}
-        )
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=retriever
-        )
-        info_retriever = create_retriever_tool(compression_retriever, name, description)
-    else:
-        retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 10}
-        )
-        info_retriever = create_retriever_tool(retriever, name, description)
-
-    return info_retriever
-
+    retriever = vector_store.as_retriever(
+        search_type="similarity", search_kwargs={"k": 10}
+    )
+    return create_retriever_tool(retriever, name, description)
 
 @st.cache_resource
 def setup_agent(_model, _prompt, _tools):
