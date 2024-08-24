@@ -1,0 +1,52 @@
+apiVersion: v1
+data:
+  config.yaml: |-
+    cookie:
+      expiry_days: 30
+      key: some_signature_key
+      name: some_cookie_name
+    credentials:
+      usernames:
+        jdoe:
+          email: jdoe@gmail.com
+          failed_login_attempts: 0
+          logged_in: false
+          name: John Doe
+          password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+        stest:
+          email: sankettest@gmail.com
+          failed_login_attempts: 0
+          logged_in: false
+          name: Sanket Test
+          password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+        stest2:
+          email: sankettest@gmail.com
+          failed_login_attempts: 0
+          logged_in: false
+          name: Sanket Test
+          password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+        skulk3:
+          email: sameertest@gmail.com
+          failed_login_attempts: 0
+          logged_in: false
+          name: Sameer Kulkarni
+          password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+        skulk4:
+          email: sameertest@gmail.com
+          failed_login_attempts: 0
+          logged_in: false
+          name: Sameer Kulkarni
+          password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+        amanj:
+          email: amantest@gmail.com
+          failed_login_attempts: 0
+          logged_in: false
+          name: Aman Juneja
+          password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+    pre-authorized:
+      emails:
+        - melsby@gmail.com
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: insightful-auth-config

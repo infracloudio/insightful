@@ -22,7 +22,9 @@ from app import (
 logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
 def configure_authenticator():
-    with open(".streamlit/config.yaml") as file:
+    auth_config = os.getenv("AUTH_CONFIG_FILE_PATH", default=".streamlit/config.yaml")
+    print(f"auth_config: {auth_config}")
+    with open(file=auth_config) as file:
         config = yaml.load(file, Loader=SafeLoader)
 
     authenticator = stauth.Authenticate(
@@ -42,6 +44,7 @@ def authenticate(op):
         name, authentication_status, username = authenticator.login()
         st.session_state["authentication_status"] = authentication_status
         st.session_state["username"] = username
+        st.session_state["name"] = name
     elif op == "register":
         try:
             (
@@ -164,5 +167,6 @@ def main():
 if __name__ == "__main__":
     authenticator = authenticate("login")
     if st.session_state["authentication_status"]:
-        authenticator.logout()
+        st.sidebar.text(f"Welcome {st.session_state['username']}")
+        authenticator.logout(location="sidebar")
         main()
