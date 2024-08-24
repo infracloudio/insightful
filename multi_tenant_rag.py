@@ -16,12 +16,13 @@ from app import (
     hf_embedding_server,
     load_prompt_and_system_ins,
     setup_huggingface_embeddings,
-    setup_huggingface_endpoint,
+    setup_chat_endpoint,
     RAG,
-    setup_agent
+    setup_agent,
 )
 
 logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
+
 
 def configure_authenticator():
     auth_config = os.getenv("AUTH_CONFIG_FILE_PATH", default=".streamlit/config.yaml")
@@ -88,8 +89,7 @@ def main():
     uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf"])
     question = st.chat_input("Chat with your docs or apis")
 
-
-    llm = setup_huggingface_endpoint(model_id=os.getenv("MODEL_ID"))
+    llm = setup_chat_endpoint()
 
     embedding_svc = setup_huggingface_embeddings()
 
@@ -108,7 +108,7 @@ def main():
     template_file_path = "templates/multi_tenant_rag_prompt_template.tmpl"
     if use_tools:
         template_file_path = "templates/multi_tenant_rag_prompt_template_tools.tmpl"
-        
+
     prompt, system_instructions = load_prompt_and_system_ins(
         template_file_path=template_file_path,
         template=template,
@@ -130,9 +130,10 @@ def main():
         f"user-collection-{user_id}", embedding_function=chroma_embeddings
     )
 
-
     logger = logging.getLogger(__name__)
-    logger.info(f"user_id: {user_id} use_reranker: {use_reranker} use_tools: {use_tools} question: {question}")
+    logger.info(
+        f"user_id: {user_id} use_reranker: {use_reranker} use_tools: {use_tools} question: {question}"
+    )
     rag = MultiTenantRAG(user_id, collection.name, client)
 
     if use_tools:
@@ -160,10 +161,12 @@ def main():
         st.chat_message("user").markdown(question)
         with st.spinner():
             if use_tools:
-                answer = agent_executor.invoke({
+                answer = agent_executor.invoke(
+                    {
                         "question": question,
                         "chat_history": chat_history,
-                    })["output"]
+                    }
+                )["output"]
                 with st.chat_message("assistant"):
                     answer = st.write(answer)
                     logger.info(f"answer: {answer}")
