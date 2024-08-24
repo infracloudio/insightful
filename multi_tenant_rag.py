@@ -1,4 +1,5 @@
 import os
+import logging
 import tempfile
 import yaml
 from yaml.loader import SafeLoader
@@ -17,6 +18,8 @@ from app import (
     setup_huggingface_endpoint,
     RAG,
 )
+
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
 def configure_authenticator():
     with open(".streamlit/config.yaml") as file:
@@ -75,7 +78,7 @@ class MultiTenantRAG(RAG):
 
 
 def main():
-    llm = setup_huggingface_endpoint(model_id="qwen/Qwen2-7B-Instruct")
+    llm = setup_huggingface_endpoint(model_id=os.getenv("MODEL_ID"))
 
     embedding_svc = setup_huggingface_embeddings()
 
@@ -112,9 +115,13 @@ def main():
         f"user-collection-{user_id}", embedding_function=chroma_embeddings
     )
 
+    use_reranker = st.sidebar.toggle("Use reranker", False)
+    use_tools = st.sidebar.toggle("Use tools", False)
     uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf"])
     question = st.chat_input("Chat with your doc")
 
+    logger = logging.getLogger(__name__)
+    logger.info(f"user_id: {user_id} use_reranker: {use_reranker} use_tools: {use_tools} question: {question}")
     rag = MultiTenantRAG(user_id, collection.name, client)
 
     # prompt = hub.pull("rlm/rag-prompt")
@@ -131,7 +138,6 @@ def main():
         rag.insert_embeddings(
             chunks=chunks,
             chroma_embedding_function=chroma_embeddings,
-            # embedder=embedding_svc,
             batch_size=32,
         )
 
@@ -144,25 +150,11 @@ def main():
                 vector_store=vectorstore,
                 prompt=prompt,
                 chat_history=chat_history,
-                use_reranker=False,
+                use_reranker=use_reranker,
             )
             with st.chat_message("assistant"):
                 answer = st.write_stream(answer)
-            # print(
-            #     "####\n#### Answer received by querying docs: " + answer + "\n####"
-            # )
-
-            # answer_with_reranker = rag.query_docs(
-            #     model=llm,
-            #     question=question,
-            #     vector_store=vectorstore,
-            #     prompt=prompt,
-            #     chat_history=chat_history,
-            #     use_reranker=True,
-            # )
-
-            # st.chat_message("assistant").markdown(answer)
-            # st.chat_message("assistant").markdown(answer_with_reranker)
+                logger.info(f"answer: {answer}")
 
             chat_history.append({"role": "user", "content": question})
             chat_history.append({"role": "assistant", "content": answer})
