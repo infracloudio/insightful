@@ -2,18 +2,11 @@ import os
 import uuid
 import datasets
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
-# from langchain_huggingface import HuggingFaceEndpoint
-# from langchain_huggingface import ChatHuggingFace
 from langchain_openai import ChatOpenAI
-# from langchain_community.llms import HuggingFaceEndpoint
-# from langchain_community.chat_models import ChatHuggingFace
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools.retriever import create_retriever_tool
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_community.utilities import StackExchangeAPIWrapper
-from langchain_community.tools.stackexchange.tool import StackExchangeTool
 from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -26,6 +19,7 @@ from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
 from langchain.retrievers import ContextualCompressionRetriever
 from tei_rerank import TEIRerank
 from transformers import AutoTokenizer
+from tools import get_tools
 
 import streamlit as st
 import streamlit_authenticator as stauth
@@ -88,33 +82,15 @@ def hf_embedding_server():
 
 # Set up HuggingFaceEndpoint model
 @st.cache_resource
-def setup_huggingface_endpoint(model_id):
+def setup_chat_endpoint():
     model = ChatOpenAI(
         base_url="http://{host}:{port}/v1".format(
             host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
         ),
-        max_tokens=1024,
+        max_tokens=os.getenv("MAX_TOKENS", 1024),
         temperature=0.7,
         api_key="dummy",
     )
-    # llm = HuggingFaceEndpoint(
-    #     endpoint_url="http://{host}:{port}".format(
-    #         host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
-    #     ),
-    #     max_new_tokens=1024,
-    #     temperature=0.7,
-    #     task="conversational",
-    #     stop_sequences=[
-    #         "<|im_end|>",
-    #         "<|eot_id|>",
-    #         "{your_token}".format(
-    #             your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")
-    #         ),
-    #     ],
-    # )
-
-    # model = ChatHuggingFace(llm=llm, model_id=model_id)
-
     return model
 
 
@@ -176,8 +152,6 @@ def load_prompt_and_system_ins(
 
 class RAG:
     def __init__(self, collection_name, db_client):
-        # self.llm = llm
-        # self.embedding_svc = embedding_svc
         self.collection_name = collection_name
         self.db_client = db_client
 
@@ -225,13 +199,7 @@ class RAG:
             documents = [chunk.page_content for chunk in batch]
 
             collection.add(ids=chunk_ids, metadatas=metadatas, documents=documents)
-        # db = Chroma(
-        #     embedding_function=embedder,
-        #     collection_name=self.collection_name,
-        #     client=self.db_client,
-        # )
         print("Embeddings inserted\n")
-        # return db
 
     def query_docs(
         self, model, question, vector_store, prompt, chat_history, use_reranker=False
@@ -261,6 +229,7 @@ class RAG:
         )
 
         return rag_chain.stream({"question": question, "chat_history": chat_history})
+
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
@@ -305,37 +274,8 @@ def create_retriever(
     return info_retriever
 
 
-def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
-    tools = []
-    if (
-        os.getenv("STACK_OVERFLOW_API_KEY")
-        and os.getenv("STACK_OVERFLOW_API_KEY").strip()
-    ):
-        stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
-        stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
-        tools.append(stackexchange_tool)
-
-    if os.getenv("TAVILY_API_KEY") and os.getenv("TAVILY_API_KEY").strip():
-        web_search_tool = TavilySearchResults(max_results=10, handle_tool_error=True)
-        tools.append(web_search_tool)
-
-    use_reranker = os.getenv("USE_RERANKER", "False") == "True"
-    retriever = create_retriever(
-        "slack_conversations_retriever",
-        "Useful for when you need to answer from Slack conversations.",
-        _client,
-        _chroma_embedding_function,
-        _embedder,
-        reranker=use_reranker,
-    )
-    tools.append(retriever)
-
-    return tools
-
-
 @st.cache_resource
 def setup_agent(_model, _prompt, _tools):
-    # tools = setup_tools(_model, _client, _chroma_embedding_function, _embedder)
     agent = create_react_agent(
         llm=_model,
         prompt=_prompt,
@@ -354,12 +294,22 @@ def main():
     if os.getenv("ENABLE_PORTKEY", "False") == "True":
         model = setup_portkey_integrated_model()
     else:
-        model = setup_huggingface_endpoint(model_id=os.getenv("MODEL_ID"))
+        model = setup_chat_endpoint()
     embedder = setup_huggingface_embeddings()
+    use_reranker = os.getenv("USE_RERANKER", "False") == "True"
 
-    agent_executor = setup_agent(
-        model, prompt, client, chroma_embedding_function, embedder
+    retriever_tool = create_retriever(
+        "slack_conversations_retriever",
+        "Useful for when you need to answer from Slack conversations.",
+        client,
+        chroma_embedding_function,
+        embedder,
+        reranker=use_reranker,
     )
+    _tools = get_tools()
+    _tools.append(retriever_tool)
+
+    agent_executor = setup_agent(model, prompt, _tools)
 
     st.title("InSightful: Your AI Assistant for community questions")
     st.text("Made with ❤️ by InfraCloud Technologies")
