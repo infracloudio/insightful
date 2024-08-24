@@ -9,6 +9,7 @@ from streamlit_authenticator.utilities import RegisterError
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores.chroma import Chroma
 from unstructured.cleaners.core import clean_extra_whitespace, group_broken_paragraphs
+from tools import get_tools
 
 from app import (
     setup_chroma_client,
@@ -17,6 +18,7 @@ from app import (
     setup_huggingface_embeddings,
     setup_huggingface_endpoint,
     RAG,
+    setup_agent
 )
 
 logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
@@ -81,6 +83,12 @@ class MultiTenantRAG(RAG):
 
 
 def main():
+    use_reranker = st.sidebar.toggle("Use reranker", False)
+    use_tools = st.sidebar.toggle("Use tools", False)
+    uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf"])
+    question = st.chat_input("Chat with your doc")
+
+
     llm = setup_huggingface_endpoint(model_id=os.getenv("MODEL_ID"))
 
     embedding_svc = setup_huggingface_embeddings()
@@ -97,8 +105,12 @@ def main():
     Be concise and always provide accurate, specific, and relevant information.
     """
 
+    template_file_path = "templates/multi_tenant_rag_prompt_template.tmpl"
+    if use_tools:
+        template_file_path = "templates/multi_tenant_rag_prompt_template_tools.tmpl"
+        
     prompt, system_instructions = load_prompt_and_system_ins(
-        template_file_path="templates/multi_tenant_rag_prompt_template.tmpl",
+        template_file_path=template_file_path,
         template=template,
     )
 
@@ -118,14 +130,14 @@ def main():
         f"user-collection-{user_id}", embedding_function=chroma_embeddings
     )
 
-    use_reranker = st.sidebar.toggle("Use reranker", False)
-    use_tools = st.sidebar.toggle("Use tools", False)
-    uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf"])
-    question = st.chat_input("Chat with your doc")
 
     logger = logging.getLogger(__name__)
     logger.info(f"user_id: {user_id} use_reranker: {use_reranker} use_tools: {use_tools} question: {question}")
     rag = MultiTenantRAG(user_id, collection.name, client)
+
+    if use_tools:
+        tools = get_tools()
+        agent_executor = setup_agent(llm, prompt, tools)
 
     # prompt = hub.pull("rlm/rag-prompt")
 
@@ -147,17 +159,26 @@ def main():
     if question:
         st.chat_message("user").markdown(question)
         with st.spinner():
-            answer = rag.query_docs(
-                model=llm,
-                question=question,
-                vector_store=vectorstore,
-                prompt=prompt,
-                chat_history=chat_history,
-                use_reranker=use_reranker,
-            )
-            with st.chat_message("assistant"):
-                answer = st.write_stream(answer)
-                logger.info(f"answer: {answer}")
+            if use_tools:
+                answer = agent_executor.invoke({
+                        "question": question,
+                        "chat_history": chat_history,
+                    })["output"]
+                with st.chat_message("assistant"):
+                    answer = st.write(answer)
+                    logger.info(f"answer: {answer}")
+            else:
+                answer = rag.query_docs(
+                    model=llm,
+                    question=question,
+                    vector_store=vectorstore,
+                    prompt=prompt,
+                    chat_history=chat_history,
+                    use_reranker=use_reranker,
+                )
+                with st.chat_message("assistant"):
+                    answer = st.write_stream(answer)
+                    logger.info(f"answer: {answer}")
 
             chat_history.append({"role": "user", "content": question})
             chat_history.append({"role": "assistant", "content": answer})

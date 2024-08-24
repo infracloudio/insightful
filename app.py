@@ -334,15 +334,15 @@ def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
 
 
 @st.cache_resource
-def setup_agent(_model, _prompt, _client, _chroma_embedding_function, _embedder):
-    tools = setup_tools(_model, _client, _chroma_embedding_function, _embedder)
+def setup_agent(_model, _prompt, _tools):
+    # tools = setup_tools(_model, _client, _chroma_embedding_function, _embedder)
     agent = create_react_agent(
         llm=_model,
         prompt=_prompt,
-        tools=tools,
+        tools=_tools,
     )
     agent_executor = AgentExecutor(
-        agent=agent, verbose=True, tools=tools, handle_parsing_errors=True
+        agent=agent, verbose=True, tools=_tools, handle_parsing_errors=True
     )
     return agent_executor
 
