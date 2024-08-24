@@ -59,6 +59,8 @@ spec:
           readOnly: true
         - name: empty
           mountPath: /tmp/
+        - name: auth-config
+          mountPath: /opt/auth-config
       dnsPolicy: ClusterFirst
       nodeSelector:
         kubernetes.io/hostname: infracloud02      
@@ -71,5 +73,8 @@ spec:
         secret:
           defaultMode: 420
           secretName: gh-pat
+      - name: auth-config
+        configMap:
+          name: insightful-auth-config
       - name: empty
         emptyDir: {}
