@@ -55,6 +55,7 @@ def authenticate():
 
 
 # Set up Chroma DB client
+@st.cache_resource
 def setup_chroma_client():
     client = chromadb.HttpClient(
         host="http://{host}:{port}".format(
@@ -67,6 +68,7 @@ def setup_chroma_client():
 
 
 # Set up Chroma embedding function
+@st.cache_resource
 def hf_embedding_server():
     _embedding_function = HuggingFaceEmbeddingServer(
         url="http://{host}:{port}/embed".format(
@@ -77,6 +79,7 @@ def hf_embedding_server():
 
 
 # Set up HuggingFaceEndpoint model
+@st.cache_resource
 def setup_huggingface_endpoint(model_id):
     llm = HuggingFaceEndpoint(
         endpoint_url="http://{host}:{port}".format(
@@ -86,6 +89,7 @@ def setup_huggingface_endpoint(model_id):
         task="conversational",
         stop_sequences=[
             "<|im_end|>",
+            "<|eot_id|>",
             "{your_token}".format(
                 your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")
             ),
@@ -97,6 +101,8 @@ def setup_huggingface_endpoint(model_id):
     return model
 
 
+# Set up Portkey integrated model
+@st.cache_resource
 def setup_portkey_integrated_model():
     from portkey_ai import createHeaders, PORTKEY_GATEWAY_URL
     from langchain_openai import ChatOpenAI
@@ -118,6 +124,7 @@ def setup_portkey_integrated_model():
 
 
 # Set up HuggingFaceEndpointEmbeddings embedder
+@st.cache_resource
 def setup_huggingface_embeddings():
     embedder = HuggingFaceEndpointEmbeddings(
         model="http://{host}:{port}".format(
@@ -128,6 +135,7 @@ def setup_huggingface_embeddings():
     return embedder
 
 
+@st.cache_resource
 def load_prompt_and_system_ins(
     template_file_path="templates/prompt_template.tmpl", template=None
 ):
@@ -235,9 +243,7 @@ class RAG:
             | StrOutputParser()
         )
 
-        answer = rag_chain.invoke({"question": question, "chat_history": chat_history})
-        return answer
-
+        return rag_chain.stream({"question": question, "chat_history": chat_history})
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)

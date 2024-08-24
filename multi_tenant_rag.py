@@ -104,68 +104,72 @@ def main():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if user_id:
+    if not user_id:
+        st.error("Please login to continue")
+        return
 
-        collection = client.get_or_create_collection(
-            f"user-collection-{user_id}", embedding_function=chroma_embeddings
+    collection = client.get_or_create_collection(
+        f"user-collection-{user_id}", embedding_function=chroma_embeddings
+    )
+
+    uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf"])
+    question = st.chat_input("Chat with your doc")
+
+    rag = MultiTenantRAG(user_id, collection.name, client)
+
+    # prompt = hub.pull("rlm/rag-prompt")
+
+    vectorstore = Chroma(
+        embedding_function=embedding_svc,
+        collection_name=collection.name,
+        client=client,
+    )
+
+    if uploaded_file:
+        document = rag.load_documents(uploaded_file)
+        chunks = rag.chunk_doc(document)
+        rag.insert_embeddings(
+            chunks=chunks,
+            chroma_embedding_function=chroma_embeddings,
+            # embedder=embedding_svc,
+            batch_size=32,
         )
 
-        uploaded_file = st.file_uploader("Upload a document", type=["pdf"])
-
-        rag = MultiTenantRAG(user_id, collection.name, client)
-
-        # prompt = hub.pull("rlm/rag-prompt")
-
-        vectorstore = Chroma(
-            embedding_function=embedding_svc,
-            collection_name=collection.name,
-            client=client,
-        )
-
-        if uploaded_file:
-            document = rag.load_documents(uploaded_file)
-            chunks = rag.chunk_doc(document)
-            rag.insert_embeddings(
-                chunks=chunks,
-                chroma_embedding_function=chroma_embeddings,
-                # embedder=embedding_svc,
-                batch_size=32,
+    if question:
+        st.chat_message("user").markdown(question)
+        with st.spinner():
+            answer = rag.query_docs(
+                model=llm,
+                question=question,
+                vector_store=vectorstore,
+                prompt=prompt,
+                chat_history=chat_history,
+                use_reranker=False,
             )
+            with st.chat_message("assistant"):
+                answer = st.write_stream(answer)
+            # print(
+            #     "####\n#### Answer received by querying docs: " + answer + "\n####"
+            # )
 
-        if question := st.chat_input("Chat with your doc"):
-            st.chat_message("user").markdown(question)
-            with st.spinner():
-                answer = rag.query_docs(
-                    model=llm,
-                    question=question,
-                    vector_store=vectorstore,
-                    prompt=prompt,
-                    chat_history=chat_history,
-                    use_reranker=False,
-                )
-                # print(
-                #     "####\n#### Answer received by querying docs: " + answer + "\n####"
-                # )
+            # answer_with_reranker = rag.query_docs(
+            #     model=llm,
+            #     question=question,
+            #     vector_store=vectorstore,
+            #     prompt=prompt,
+            #     chat_history=chat_history,
+            #     use_reranker=True,
+            # )
 
-                answer_with_reranker = rag.query_docs(
-                    model=llm,
-                    question=question,
-                    vector_store=vectorstore,
-                    prompt=prompt,
-                    chat_history=chat_history,
-                    use_reranker=True,
-                )
+            # st.chat_message("assistant").markdown(answer)
+            # st.chat_message("assistant").markdown(answer_with_reranker)
 
-                st.chat_message("assistant").markdown(answer)
-                st.chat_message("assistant").markdown(answer_with_reranker)
-
-                chat_history.append({"role": "user", "content": question})
-                chat_history.append({"role": "assistant", "content": answer})
-                st.session_state["chat_history"] = chat_history
+            chat_history.append({"role": "user", "content": question})
+            chat_history.append({"role": "assistant", "content": answer})
+            st.session_state["chat_history"] = chat_history
 
 
 if __name__ == "__main__":
-
     authenticator = authenticate("login")
     if st.session_state["authentication_status"]:
         authenticator.logout()
