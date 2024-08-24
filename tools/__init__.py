@@ -1,3 +1,5 @@
+import os
+
 from .annual_still_births_by_state import AnnualStillBirthsByStateAPIClient, AnnualStillBirthsByStateTool
 from .annual_still_births import AnnualStillBirthsAPIClient, AnnualStillBirthsTool
 from .annual_live_births_by_state import AnnualLiveBirthsByStateAPIClient, AnnualLiveBirthsByStateTool
@@ -21,5 +23,14 @@ def get_tools():
         annual_still_births_by_state_tool,
         daily_live_births_tool
     ]
+    if (
+        os.getenv("STACK_OVERFLOW_API_KEY")
+        and os.getenv("STACK_OVERFLOW_API_KEY").strip()
+    ):
+        from .stackexchange import tool as stackexchange_tool
+        tools.append(stackexchange_tool())
 
+    if os.getenv("TAVILY_API_KEY") and os.getenv("TAVILY_API_KEY").strip():
+        from .tavily import tool as tavily_tool
+        tools.append(tavily_tool())
     return tools
