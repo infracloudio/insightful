@@ -16,7 +16,7 @@ To use a tool, please use the following format:
 ```
 Thought: Do I need to use a tool? Yes\n
 Action: the action to take, should be one of [{tool_names}]\n
-Action Input: the input parameters to the action in specified format\n
+Action Input: the input parameters to the action in specified format. It MUST be as a json string. It MUST not contain anything other than the json string.\n
 Observation: the result of the action\n
 ```
 
@@ -26,6 +26,8 @@ When you have a response to say to the Human, or if you do not need to use a too
 Thought: Do I need to use a tool? No
 Final Answer: [your response here]
 ```
+
+You MUST not mention the tools used for the response in the final answer.
 
 Use the following pieces of retrieved context to answer the question.
 Begin!
