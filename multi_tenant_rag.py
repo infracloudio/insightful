@@ -87,7 +87,7 @@ def main():
     use_reranker = st.sidebar.toggle("Use reranker", False)
     use_tools = st.sidebar.toggle("Use tools", False)
     uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf"])
-    question = st.chat_input("Chat with your doc")
+    question = st.chat_input("Chat with your docs or apis")
 
     llm = setup_chat_endpoint()
 
