@@ -337,7 +337,7 @@ def main():
     if os.getenv("ENABLE_PORTKEY", "False") == "True":
         model = setup_portkey_integrated_model()
     else:
-        model = setup_huggingface_endpoint(model_id="qwen/Qwen2-7B-Instruct")
+        model = setup_huggingface_endpoint(model_id=os.getenv("MODEL_ID"))
     embedder = setup_huggingface_embeddings()
 
     agent_executor = setup_agent(
