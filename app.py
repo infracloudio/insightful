@@ -2,8 +2,11 @@ import os
 import uuid
 import datasets
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
-from langchain_community.chat_models import ChatHuggingFace
-from langchain_community.llms import HuggingFaceEndpoint
+# from langchain_huggingface import HuggingFaceEndpoint
+# from langchain_huggingface import ChatHuggingFace
+from langchain_openai import ChatOpenAI
+# from langchain_community.llms import HuggingFaceEndpoint
+# from langchain_community.chat_models import ChatHuggingFace
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.agents import create_react_agent, AgentExecutor
@@ -29,6 +32,11 @@ import streamlit_authenticator as stauth
 
 import yaml
 from yaml.loader import SafeLoader
+
+from langchain.globals import set_verbose, set_debug
+
+set_verbose(True)
+set_debug(True)
 
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from urllib3.exceptions import ProtocolError
@@ -81,22 +89,31 @@ def hf_embedding_server():
 # Set up HuggingFaceEndpoint model
 @st.cache_resource
 def setup_huggingface_endpoint(model_id):
-    llm = HuggingFaceEndpoint(
-        endpoint_url="http://{host}:{port}".format(
+    model = ChatOpenAI(
+        base_url="http://{host}:{port}/v1".format(
             host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
         ),
-        temperature=0.3,
-        task="conversational",
-        stop_sequences=[
-            "<|im_end|>",
-            "<|eot_id|>",
-            "{your_token}".format(
-                your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")
-            ),
-        ],
+        max_tokens=1024,
+        temperature=0.7,
+        api_key="dummy",
     )
+    # llm = HuggingFaceEndpoint(
+    #     endpoint_url="http://{host}:{port}".format(
+    #         host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
+    #     ),
+    #     max_new_tokens=1024,
+    #     temperature=0.7,
+    #     task="conversational",
+    #     stop_sequences=[
+    #         "<|im_end|>",
+    #         "<|eot_id|>",
+    #         "{your_token}".format(
+    #             your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")
+    #         ),
+    #     ],
+    # )
 
-    model = ChatHuggingFace(llm=llm, model_id=model_id)
+    # model = ChatHuggingFace(llm=llm, model_id=model_id)
 
     return model
 
