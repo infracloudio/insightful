@@ -7,8 +7,7 @@ import streamlit as st
 import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import RegisterError
 from langchain_community.document_loaders import PyPDFLoader
-#from langchain_community.vectorstores.chroma import Chroma
-from langchain_chroma import Chroma
+from langchain_community.vectorstores.chroma import Chroma
 from unstructured.cleaners.core import clean_extra_whitespace, group_broken_paragraphs
 from tools import get_tools
 
