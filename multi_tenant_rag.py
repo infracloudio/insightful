@@ -7,7 +7,8 @@ import streamlit as st
 import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import RegisterError
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores.chroma import Chroma
+#from langchain_community.vectorstores.chroma import Chroma
+from langchain_chroma import Chroma
 from unstructured.cleaners.core import clean_extra_whitespace, group_broken_paragraphs
 from tools import get_tools
 
@@ -20,6 +21,11 @@ from app import (
     RAG,
     setup_agent,
 )
+
+SYSTEM = "system"
+USER = "user"
+ASSISTANT = "assistant"
+
 
 logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
@@ -115,7 +121,7 @@ def main():
     )
 
     chat_history = st.session_state.get(
-        "chat_history", [{"role": "system", "content": system_instructions.content}]
+        "chat_history", [{"role": SYSTEM, "content": system_instructions.content}]
     )
 
     for message in chat_history[1:]:
@@ -158,7 +164,7 @@ def main():
         )
 
     if question:
-        st.chat_message("user").markdown(question)
+        st.chat_message(USER).markdown(question)
         with st.spinner():
             if use_tools:
                 answer = agent_executor.invoke(
@@ -167,8 +173,8 @@ def main():
                         "chat_history": chat_history,
                     }
                 )["output"]
-                with st.chat_message("assistant"):
-                    answer = st.write(answer)
+                with st.chat_message(ASSISTANT):
+                    st.write(answer)
                     logger.info(f"answer: {answer}")
             else:
                 answer = rag.query_docs(
@@ -179,12 +185,12 @@ def main():
                     chat_history=chat_history,
                     use_reranker=use_reranker,
                 )
-                with st.chat_message("assistant"):
+                with st.chat_message(ASSISTANT):
                     answer = st.write_stream(answer)
                     logger.info(f"answer: {answer}")
 
-            chat_history.append({"role": "user", "content": question})
-            chat_history.append({"role": "assistant", "content": answer})
+            chat_history.append({"role": USER, "content": question})
+            chat_history.append({"role": ASSISTANT, "content": answer})
             st.session_state["chat_history"] = chat_history
 
 
