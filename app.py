@@ -2,15 +2,11 @@ import os
 import uuid
 import datasets
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
-from langchain_community.chat_models import ChatHuggingFace
-from langchain_community.llms import HuggingFaceEndpoint
+from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools.retriever import create_retriever_tool
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_community.utilities import StackExchangeAPIWrapper
-from langchain_community.tools.stackexchange.tool import StackExchangeTool
 from langchain_core.messages import SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -19,10 +15,13 @@ from langchain_community.vectorstores.chroma import Chroma
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils.embedding_functions import HuggingFaceEmbeddingServer
-
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from urllib3.exceptions import ProtocolError
 from langchain.retrievers import ContextualCompressionRetriever
-from tei_rerank import TEIRerank
 from transformers import AutoTokenizer
+
+from tools import get_tools
+from tei_rerank import TEIRerank
 
 import streamlit as st
 import streamlit_authenticator as stauth
@@ -30,8 +29,10 @@ import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
-from urllib3.exceptions import ProtocolError
+from langchain.globals import set_verbose, set_debug
+
+set_verbose(True)
+set_debug(True)
 
 st.set_page_config(layout="wide", page_title="InSightful")
 
@@ -80,24 +81,15 @@ def hf_embedding_server():
 
 # Set up HuggingFaceEndpoint model
 @st.cache_resource
-def setup_huggingface_endpoint(model_id):
-    llm = HuggingFaceEndpoint(
-        endpoint_url="http://{host}:{port}".format(
+def setup_chat_endpoint():
+    model = ChatOpenAI(
+        base_url="http://{host}:{port}/v1".format(
             host=os.getenv("TGI_HOST", "localhost"), port=os.getenv("TGI_PORT", "8080")
         ),
-        temperature=0.3,
-        task="conversational",
-        stop_sequences=[
-            "<|im_end|>",
-            "<|eot_id|>",
-            "{your_token}".format(
-                your_token=os.getenv("STOP_TOKEN", "<|end_of_text|>")
-            ),
-        ],
+        max_tokens=os.getenv("MAX_TOKENS", 1024),
+        temperature=0.7,
+        api_key="dummy",
     )
-
-    model = ChatHuggingFace(llm=llm, model_id=model_id)
-
     return model
 
 
@@ -159,8 +151,6 @@ def load_prompt_and_system_ins(
 
 class RAG:
     def __init__(self, collection_name, db_client):
-        # self.llm = llm
-        # self.embedding_svc = embedding_svc
         self.collection_name = collection_name
         self.db_client = db_client
 
@@ -208,17 +198,9 @@ class RAG:
             documents = [chunk.page_content for chunk in batch]
 
             collection.add(ids=chunk_ids, metadatas=metadatas, documents=documents)
-        # db = Chroma(
-        #     embedding_function=embedder,
-        #     collection_name=self.collection_name,
-        #     client=self.db_client,
-        # )
         print("Embeddings inserted\n")
-        # return db
 
-    def query_docs(
-        self, model, question, vector_store, prompt, chat_history, use_reranker=False
-    ):
+    def get_retriever(self, vector_store, use_reranker=False):
         retriever = vector_store.as_retriever(
             search_type="similarity", search_kwargs={"k": 10}
         )
@@ -234,7 +216,12 @@ class RAG:
             retriever = ContextualCompressionRetriever(
                 base_compressor=compressor, base_retriever=retriever
             )
+        return retriever
 
+    def query_docs(
+        self, model, question, vector_store, prompt, chat_history, use_reranker=False
+    ):
+        retriever = self.get_retriever(vector_store, use_reranker)
         pass_question = lambda input: input["question"]
         rag_chain = (
             RunnablePassthrough.assign(context=pass_question | retriever | format_docs)
@@ -244,6 +231,7 @@ class RAG:
         )
 
         return rag_chain.stream({"question": question, "chat_history": chat_history})
+
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
@@ -262,70 +250,22 @@ def create_retriever(
         collection_name=collection_name,
         client=client,
     )
-    if reranker:
-        compressor = TEIRerank(
-            url="http://{host}:{port}".format(
-                host=os.getenv("RERANKER_HOST", "localhost"),
-                port=os.getenv("RERANKER_PORT", "8082"),
-            ),
-            top_n=10,
-            batch_size=16,
-        )
+    retriever = rag.get_retriever(vector_store, use_reranker=reranker)
 
-        retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 100}
-        )
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=retriever
-        )
-        info_retriever = create_retriever_tool(compression_retriever, name, description)
-    else:
-        retriever = vector_store.as_retriever(
-            search_type="similarity", search_kwargs={"k": 10}
-        )
-        info_retriever = create_retriever_tool(retriever, name, description)
-
-    return info_retriever
-
-
-def setup_tools(_model, _client, _chroma_embedding_function, _embedder):
-    tools = []
-    if (
-        os.getenv("STACK_OVERFLOW_API_KEY")
-        and os.getenv("STACK_OVERFLOW_API_KEY").strip()
-    ):
-        stackexchange_wrapper = StackExchangeAPIWrapper(max_results=3)
-        stackexchange_tool = StackExchangeTool(api_wrapper=stackexchange_wrapper)
-        tools.append(stackexchange_tool)
-
-    if os.getenv("TAVILY_API_KEY") and os.getenv("TAVILY_API_KEY").strip():
-        web_search_tool = TavilySearchResults(max_results=10, handle_tool_error=True)
-        tools.append(web_search_tool)
-
-    use_reranker = os.getenv("USE_RERANKER", "False") == "True"
-    retriever = create_retriever(
-        "slack_conversations_retriever",
-        "Useful for when you need to answer from Slack conversations.",
-        _client,
-        _chroma_embedding_function,
-        _embedder,
-        reranker=use_reranker,
+    retriever = vector_store.as_retriever(
+        search_type="similarity", search_kwargs={"k": 10}
     )
-    tools.append(retriever)
-
-    return tools
-
+    return create_retriever_tool(retriever, name, description)
 
 @st.cache_resource
-def setup_agent(_model, _prompt, _client, _chroma_embedding_function, _embedder):
-    tools = setup_tools(_model, _client, _chroma_embedding_function, _embedder)
+def setup_agent(_model, _prompt, _tools):
     agent = create_react_agent(
         llm=_model,
         prompt=_prompt,
-        tools=tools,
+        tools=_tools,
     )
     agent_executor = AgentExecutor(
-        agent=agent, verbose=True, tools=tools, handle_parsing_errors=True
+        agent=agent, verbose=True, tools=_tools, handle_parsing_errors=True
     )
     return agent_executor
 
@@ -337,12 +277,22 @@ def main():
     if os.getenv("ENABLE_PORTKEY", "False") == "True":
         model = setup_portkey_integrated_model()
     else:
-        model = setup_huggingface_endpoint(model_id=os.getenv("MODEL_ID"))
+        model = setup_chat_endpoint()
     embedder = setup_huggingface_embeddings()
+    use_reranker = os.getenv("USE_RERANKER", "False") == "True"
 
-    agent_executor = setup_agent(
-        model, prompt, client, chroma_embedding_function, embedder
+    retriever_tool = create_retriever(
+        "slack_conversations_retriever",
+        "Useful for when you need to answer from Slack conversations.",
+        client,
+        chroma_embedding_function,
+        embedder,
+        reranker=use_reranker,
     )
+    _tools = get_tools()
+    _tools.append(retriever_tool)
+
+    agent_executor = setup_agent(model, prompt, _tools)
 
     st.title("InSightful: Your AI Assistant for community questions")
     st.text("Made with ❤️ by InfraCloud Technologies")
