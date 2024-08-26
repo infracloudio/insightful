@@ -1,14 +1,13 @@
-import os
 import logging
-import tempfile
+import os
 import yaml
 from yaml.loader import SafeLoader
 import streamlit as st
 import streamlit_authenticator as stauth
 from streamlit_authenticator.utilities import RegisterError
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores.chroma import Chroma
-from unstructured.cleaners.core import clean_extra_whitespace, group_broken_paragraphs
+from langchain_chroma import Chroma
+
 from tools import get_tools
 
 from app import (
@@ -21,17 +20,19 @@ from app import (
     setup_agent,
 )
 
+
 SYSTEM = "system"
 USER = "user"
 ASSISTANT = "assistant"
 
 
 logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
+log: logging.Logger = logging.getLogger(__name__)
 
 
 def configure_authenticator():
     auth_config = os.getenv("AUTH_CONFIG_FILE_PATH", default=".streamlit/config.yaml")
-    print(f"auth_config: {auth_config}")
+    log.info(f"auth_config: {auth_config}")
     with open(file=auth_config) as file:
         config = yaml.load(file, Loader=SafeLoader)
 
@@ -67,49 +68,32 @@ def authenticate(op):
     return authenticator
 
 
-class MultiTenantRAG(RAG):
-    def __init__(self, user_id, collection_name, db_client):
-        self.user_id = user_id
-        super().__init__(collection_name, db_client)
-
-    def load_documents(self, doc):
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=os.path.splitext(doc.name)[1]
-        ) as tmp:
-            tmp.write(doc.getvalue())
-            tmp_path = tmp.name
-        loader = PyPDFLoader(tmp_path)
-        documents = loader.load()
-        cleaned_pages = []
-        for doc in documents:
-            doc.page_content = clean_extra_whitespace(doc.page_content)
-            doc.page_content = group_broken_paragraphs(doc.page_content)
-            cleaned_pages.append(doc)
-        return cleaned_pages
-
-
 def main():
+    authenticator = authenticate("login")
+    if st.session_state["authentication_status"]:
+        st.sidebar.text(f"Welcome {st.session_state['username']}")
+        authenticator.logout(location="sidebar")
+    user_id = st.session_state["username"]
+    if not user_id:
+        st.error("Please login to continue")
+        return
+
     use_reranker = st.sidebar.toggle("Use reranker", False)
     use_tools = st.sidebar.toggle("Use tools", False)
     uploaded_file = st.sidebar.file_uploader("Upload a document", type=["pdf"])
     question = st.chat_input("Chat with your docs or apis")
 
     llm = setup_chat_endpoint()
-
     embedding_svc = setup_huggingface_embeddings()
-
     chroma_embeddings = hf_embedding_server()
-
-    user_id = st.session_state["username"]
-
     client = setup_chroma_client()
+
     # Set up prompt template
     template = """
     Based on the retrieved context, respond with an accurate answer.
 
     Be concise and always provide accurate, specific, and relevant information.
     """
-
     template_file_path = "templates/multi_tenant_rag_prompt_template.tmpl"
     if use_tools:
         template_file_path = "templates/multi_tenant_rag_prompt_template_tools.tmpl"
@@ -118,6 +102,7 @@ def main():
         template_file_path=template_file_path,
         template=template,
     )
+    log.info(f"prompt: {prompt} system_instructions: {system_instructions}")
 
     chat_history = st.session_state.get(
         "chat_history", [{"role": SYSTEM, "content": system_instructions.content}]
@@ -127,25 +112,18 @@ def main():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if not user_id:
-        st.error("Please login to continue")
-        return
-
     collection = client.get_or_create_collection(
         f"user-collection-{user_id}", embedding_function=chroma_embeddings
     )
 
-    logger = logging.getLogger(__name__)
-    logger.info(
+    log.info(
         f"user_id: {user_id} use_reranker: {use_reranker} use_tools: {use_tools} question: {question}"
     )
-    rag = MultiTenantRAG(user_id, collection.name, client)
+    rag = RAG(llm=llm, db_client=client, embedding_function=chroma_embeddings)
 
     if use_tools:
         tools = get_tools()
         agent_executor = setup_agent(llm, prompt, tools)
-
-    # prompt = hub.pull("rlm/rag-prompt")
 
     vectorstore = Chroma(
         embedding_function=embedding_svc,
@@ -154,11 +132,11 @@ def main():
     )
 
     if uploaded_file:
-        document = rag.load_documents(uploaded_file)
+        document = rag.load_pdf(uploaded_file)
         chunks = rag.chunk_doc(document)
         rag.insert_embeddings(
             chunks=chunks,
-            chroma_embedding_function=chroma_embeddings,
+            collection_name=collection.name,
             batch_size=32,
         )
 
@@ -174,10 +152,9 @@ def main():
                 )["output"]
                 with st.chat_message(ASSISTANT):
                     st.write(answer)
-                    logger.info(f"answer: {answer}")
+                    log.info(f"answer: {answer}")
             else:
                 answer = rag.query_docs(
-                    model=llm,
                     question=question,
                     vector_store=vectorstore,
                     prompt=prompt,
@@ -186,7 +163,7 @@ def main():
                 )
                 with st.chat_message(ASSISTANT):
                     answer = st.write_stream(answer)
-                    logger.info(f"answer: {answer}")
+                    log.info(f"answer: {answer}")
 
             chat_history.append({"role": USER, "content": question})
             chat_history.append({"role": ASSISTANT, "content": answer})
@@ -194,8 +171,4 @@ def main():
 
 
 if __name__ == "__main__":
-    authenticator = authenticate("login")
-    if st.session_state["authentication_status"]:
-        st.sidebar.text(f"Welcome {st.session_state['username']}")
-        authenticator.logout(location="sidebar")
-        main()
+    main()

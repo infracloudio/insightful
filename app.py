@@ -1,6 +1,8 @@
 import os
 import uuid
 import datasets
+import tempfile
+
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
@@ -19,6 +21,8 @@ from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_t
 from urllib3.exceptions import ProtocolError
 from langchain.retrievers import ContextualCompressionRetriever
 from transformers import AutoTokenizer
+from unstructured.cleaners.core import clean_extra_whitespace, group_broken_paragraphs
+from langchain_community.document_loaders import PyPDFLoader
 
 from tools import get_tools
 from tei_rerank import TEIRerank
@@ -29,10 +33,10 @@ import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 
-from langchain.globals import set_verbose, set_debug
+# from langchain.globals import set_verbose, set_debug
 
-set_verbose(True)
-set_debug(True)
+# set_verbose(True)
+# set_debug(True)
 
 st.set_page_config(layout="wide", page_title="InSightful")
 
@@ -129,7 +133,8 @@ def setup_huggingface_embeddings():
 
 @st.cache_resource
 def load_prompt_and_system_ins(
-    template_file_path="templates/prompt_template.tmpl", template=None
+    template_file_path: str = "templates/prompt_template.tmpl",
+    template: str | None = None,
 ):
     # prompt = hub.pull("hwchase17/react-chat")
     prompt = PromptTemplate.from_file(template_file_path)
@@ -149,10 +154,11 @@ def load_prompt_and_system_ins(
     return prompt, system_instructions
 
 
-class RAG:
-    def __init__(self, collection_name, db_client):
-        self.collection_name = collection_name
+class RAG(object):
+    def __init__(self, llm: ChatOpenAI, db_client, embedding_function):
+        self.llm = llm
         self.db_client = db_client
+        self.embedding_function = embedding_function
 
     @retry(
         retry=retry_if_exception_type(ProtocolError),
@@ -182,14 +188,14 @@ class RAG:
         print("Document chunked")
         return chunks
 
-    def insert_embeddings(self, chunks, chroma_embedding_function, batch_size=32):
+    def insert_embeddings(self, chunks, collection_name, batch_size=32):
         print(
             "Inserting embeddings into collection: {collection_name}".format(
-                collection_name=self.collection_name
+                collection_name=collection_name
             )
         )
         collection = self.db_client.get_or_create_collection(
-            self.collection_name, embedding_function=chroma_embedding_function
+            collection_name, embedding_function=self.embedding_function
         )
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i : i + batch_size]
@@ -219,43 +225,38 @@ class RAG:
         return retriever
 
     def query_docs(
-        self, model, question, vector_store, prompt, chat_history, use_reranker=False
+        self, question, vector_store, prompt, chat_history, use_reranker=False
     ):
         retriever = self.get_retriever(vector_store, use_reranker)
         pass_question = lambda input: input["question"]
         rag_chain = (
             RunnablePassthrough.assign(context=pass_question | retriever | format_docs)
             | prompt
-            | model
+            | self.llm
             | StrOutputParser()
         )
 
         return rag_chain.stream({"question": question, "chat_history": chat_history})
 
+    def load_pdf(self, doc):
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=os.path.splitext(doc.name)[1]
+        ) as tmp:
+            tmp.write(doc.getvalue())
+            tmp_path = tmp.name
+        loader = PyPDFLoader(tmp_path)
+        documents = loader.load()
+        cleaned_pages = []
+        for doc in documents:
+            doc.page_content = clean_extra_whitespace(doc.page_content)
+            doc.page_content = group_broken_paragraphs(doc.page_content)
+            cleaned_pages.append(doc)
+        return cleaned_pages
+
 
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-
-def create_retriever(
-    name, description, client, chroma_embedding_function, embedding_svc, reranker=False
-):
-    collection_name = "software-slacks"
-    rag = RAG(collection_name=collection_name, db_client=client)
-    pages = rag.load_documents("spencer/software_slacks", num_docs=100)
-    chunks = rag.chunk_doc(pages)
-    rag.insert_embeddings(chunks, chroma_embedding_function)
-    vector_store = Chroma(
-        embedding_function=embedding_svc,
-        collection_name=collection_name,
-        client=client,
-    )
-    retriever = rag.get_retriever(vector_store, use_reranker=reranker)
-
-    retriever = vector_store.as_retriever(
-        search_type="similarity", search_kwargs={"k": 10}
-    )
-    return create_retriever_tool(retriever, name, description)
 
 @st.cache_resource
 def setup_agent(_model, _prompt, _tools):
@@ -280,17 +281,25 @@ def main():
         model = setup_chat_endpoint()
     embedder = setup_huggingface_embeddings()
     use_reranker = os.getenv("USE_RERANKER", "False") == "True"
-
-    retriever_tool = create_retriever(
-        "slack_conversations_retriever",
-        "Useful for when you need to answer from Slack conversations.",
-        client,
-        chroma_embedding_function,
-        embedder,
-        reranker=use_reranker,
+    rag = RAG(llm=model, db_client=client, embedding_function=chroma_embedding_function)
+    collection_name = "software-slacks"
+    pages = rag.load_documents("spencer/software_slacks", num_docs=100)
+    chunks = rag.chunk_doc(pages)
+    rag.insert_embeddings(chunks, collection_name)
+    vector_store = Chroma(
+        embedding_function=embedder,
+        collection_name=collection_name,
+        client=client,
     )
+    retriever = rag.get_retriever(vector_store, use_reranker=use_reranker)
     _tools = get_tools()
-    _tools.append(retriever_tool)
+    _tools.append(
+        create_retriever_tool(
+            retriever,
+            "slack_conversations_retriever",
+            "Useful for when you need to answer from Slack conversations.",
+        )
+    )
 
     agent_executor = setup_agent(model, prompt, _tools)
 
@@ -328,7 +337,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # authenticator = authenticate()
-    # if st.session_state['authentication_status']:
-    #    authenticator.logout()
     main()
