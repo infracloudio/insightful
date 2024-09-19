@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY .streamlit/** /app/.streamlit/ 
 COPY templates/** /app/templates/
+COPY tools/** /app/tools/
 COPY app.py multi_tenant_rag.py requirements.txt tei_rerank.py /app/
 
 RUN pip install --upgrade pip

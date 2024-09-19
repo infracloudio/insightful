@@ -63,7 +63,7 @@ spec:
           mountPath: /opt/auth-config
       dnsPolicy: ClusterFirst
       nodeSelector:
-        kubernetes.io/hostname: infracloud02      
+        kubernetes.io/hostname: infracloud02
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext: {}

@@ -197,5 +197,6 @@ if __name__ == "__main__":
     authenticator = authenticate("login")
     if st.session_state["authentication_status"]:
         st.sidebar.text(f"Welcome {st.session_state['username']}")
+        st._main.header(f"Insightful by InfraCloud Technologies: Policy Chatbot Assistant")
         authenticator.logout(location="sidebar")
         main()

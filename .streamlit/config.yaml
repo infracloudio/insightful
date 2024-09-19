@@ -28,7 +28,13 @@ credentials:
       logged_in: false
       name: Sameer Kulkarni
       password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
-    skulk4:
+    skulk14:
+      email: sameertest@gmail.com
+      failed_login_attempts: 0
+      logged_in: false
+      name: Sameer Kulkarni
+      password: $2b$12$iWlVOac3uujRvTrXDi6wructXftKmo/GyQd6SMu5FmyX306kH.yFO
+    skulk12:
       email: sameertest@gmail.com
       failed_login_attempts: 0
       logged_in: false
